@@ -1,13 +1,10 @@
-import { MODEL } from "../server/vision-service.js";
+import { visionProvider } from '../server/vision-provider.js';
 export default function handler(request, response) {
   const approved =
       process.env.AI_FEATURES_APPROVED === "true" &&
       Boolean(process.env.AI_ALLOWED_USER_EMAILS?.trim()),
-    visionEnabled =
-      approved &&
-      process.env.VISION_PROVIDER === "openai" &&
-      Boolean(process.env.OPENAI_API_KEY) &&
-      (!process.env.VISION_MODEL || process.env.VISION_MODEL === MODEL);
+    provider = (() => { try { return visionProvider(); } catch { return null; } })(),
+    visionEnabled = Boolean(approved && provider);
   response.setHeader("Cache-Control", "no-store");
   response
     .status(200)
@@ -15,10 +12,14 @@ export default function handler(request, response) {
       supabaseUrl: process.env.SUPABASE_URL || "",
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
       storageBucket: process.env.SUPABASE_STORAGE_BUCKET || "khayrat-reports",
-      ocrEnabled: visionEnabled && process.env.OCR_ENABLED === "true",
+      ocrEnabled: visionEnabled && provider.id === 'openai' && process.env.OCR_ENABLED === "true",
       visionEnabled,
-      visionProvider: visionEnabled ? "OpenAI" : "",
-      visionModel: visionEnabled ? MODEL : "",
+      visionProvider: visionEnabled ? provider.name : '',
+      visionProviderId: visionEnabled ? provider.id : '',
+      visionModel: visionEnabled ? provider.model : '',
+      visionMinIntervalMs: visionEnabled ? provider.minIntervalMs : 0,
+      visionCostNotice: visionEnabled ? provider.costNotice : '',
+      visionPrivacyNotice: visionEnabled ? provider.privacyNotice : '',
       authRequired: process.env.ACCESS_CONTROL_REQUIRED !== "false",
     });
 }

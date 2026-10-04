@@ -7,6 +7,7 @@ import { ReportStore, EvidenceStore, businessKey } from './src/storage.js';
 import { createTemplateXLSX } from './src/xlsx-writer.js';
 import { parsePDFDocument } from './src/pdf.js';
 import { ImageAnalysisProvider,findEvidenceConflicts } from './src/image-analysis.js';
+import { waitForVisionSlot } from './src/vision-pacing.js';
 import { ProjectDatabase } from './src/database.js';
 import { loadCloudConfig, SupabaseCloudRepository } from './src/cloud.js';
 import { OCRProvider } from './src/pdfjs-adapter.js';
@@ -23,6 +24,7 @@ let pendingImport = null;
 let cloud = null;
 let auth=null;
 let visionBusy=false;
+let visionController=null,lastVisionCallAt=0;
 const adapters = {
   csv: async file => ({ records: normalizeRows(parseCSV(await file.text()), file.webkitRelativePath||file.name,{allowIncomplete:true}), images: [] }),
   xlsx: async file => ({ records: normalizeRows(await parseXLSX(await file.arrayBuffer()), file.webkitRelativePath||file.name,{allowIncomplete:true}), images: [] }),
@@ -190,8 +192,12 @@ function renderImages() {
   $$('[data-open-image]').forEach(card=>card.onclick=()=>openImage(card.dataset.openImage));
 }
 function refreshVisionStatus(){
-  $('#visionStatus').textContent=cloud?.config.visionEnabled?'OpenAI 视觉服务已配置；勾选授权后可分析。':'视觉服务尚未启用：等待负责人确认外部图片传输和服务费用。';
+  const config=cloud?.config;
+  $('#visionStatus').textContent=config?.visionEnabled?`${config.visionProvider||'OpenAI'} 视觉服务已配置；勾选授权后可分析。${config.visionCostNotice||''}${config.visionMinIntervalMs?' 每张间隔约一分钟，可停止后续分析。':''}`:'视觉服务尚未启用：等待负责人确认外部图片传输和服务费用。';
+  $('#visionConsentText').textContent=config?.visionEnabled?`授权将所选照片及对应原文发送至 ${config.visionProvider||'OpenAI'}（${config.visionModel||'gpt-4.1-mini'}）。${config.visionPrivacyNotice||''}`:'视觉服务未配置；请先确认接收平台和数据处理规则。';
   $('#analyzeImages').disabled=visionBusy||!cloud?.config.visionEnabled||!cloud?.token;
+  $('#visionConsent').disabled=visionBusy||!config?.visionEnabled;
+  $('#stopVision').disabled=!visionBusy;
   $('#ocrConsent').disabled=!cloud?.config.ocrEnabled;
 }
 function openImage(imageId){
@@ -229,13 +235,14 @@ async function analyzePhotos(images){
   if(!$('#visionConsent').checked)return toast('请先勾选照片和对应原文的外部传输授权',true);
   if(!cloud?.config.visionEnabled||!cloud?.token)return toast('视觉服务尚未获得负责人批准或需要登录',true);
   if(!images.length)return toast('没有待分析且已保存云端的图片');
-  visionBusy=true;$('#analyzeImages').disabled=$('#analyzeImage').disabled=true;
-  let completed=0;try{const session=await auth.current(),provider=new ImageAnalysisProvider({endpoint:'/api/vision',consent:true,accessToken:session?.access_token||''});
-    for(const image of images){provider.accessToken=(await auth.current())?.access_token||'';const analysis=await provider.analyze(image),changed={...image,...analysis,automaticAnalysis:analysis,manualReview:null,reviewHistory:[...image.reviewHistory||[],image.manualReview].filter(Boolean)};try{await persistEvidence(changed);}catch(error){evidenceStore.update(image.imageId,{...changed,cloudSyncPending:true});await syncDatabase();throw new Error('分析结果已保留本机，云端保存失败；可保存人工复核重试，避免再次调用收费模型。 '+error.message);}completed++;$('#visionStatus').textContent=`已完成 ${completed} / ${images.length} 张；请人工核对可见事实与工序关联。`;}
+  visionBusy=true;visionController=new AbortController();refreshVisionStatus();$('#analyzeImage').disabled=true;
+  let completed=0;try{const session=await auth.current(),provider=new ImageAnalysisProvider({endpoint:'/api/vision',consent:true,provider:cloud.config.visionProviderId||'',accessToken:session?.access_token||''});
+    for(const image of images){const wait=Math.max(0,(cloud.config.visionMinIntervalMs||0)-(Date.now()-lastVisionCallAt));if(wait)$('#visionStatus').textContent=`已完成 ${completed} / ${images.length} 张；等待免费服务调用间隔，可停止后续分析。`;await waitForVisionSlot(wait,visionController.signal);provider.accessToken=(await auth.current())?.access_token||'';if(visionController.signal.aborted)throw new Error('已停止图片分析');lastVisionCallAt=Date.now();const analysis=await provider.analyze(image),changed={...image,...analysis,automaticAnalysis:analysis,manualReview:null,reviewHistory:[...image.reviewHistory||[],image.manualReview].filter(Boolean)};try{await persistEvidence(changed);}catch(error){evidenceStore.update(image.imageId,{...changed,cloudSyncPending:true});await syncDatabase();throw new Error('分析结果已保留本机，云端保存失败；可保存人工复核重试，避免再次调用模型。 '+error.message);}completed++;$('#visionStatus').textContent=`已完成 ${completed} / ${images.length} 张；请人工核对可见事实与工序关联。`;}
     if($('#imageDialog').open)openImage($('#imageForm').elements.imageId.value);
   }catch(error){toast(`完成 ${completed} 张；${error.message}`,true);}finally{visionBusy=false;refreshVisionStatus();$('#analyzeImage').disabled=!cloud?.config.visionEnabled||!cloud?.token;}
 }
 $('#analyzeImages').onclick=()=>analyzePhotos(evidenceStore.all().filter(i=>!i.ignored&&!i.manualReviewed&&!i.visionEnabled&&i.objectPath).slice(0,33));
+$('#stopVision').onclick=()=>{visionController?.abort();$('#visionStatus').textContent='已请求停止后续分析；当前请求若已发送，将保存返回结果。';};
 $('#analyzeImage').onclick=()=>analyzePhotos([evidenceStore.all().find(i=>i.imageId===$('#imageForm').elements.imageId.value)].filter(Boolean));
 refreshVisionStatus();
 $('#closeImageDialog').onclick=()=>$('#imageDialog').close();['imageDate','imageWorkshop','imageProcess','imageSource','criticalOnly'].forEach(id=>$(`#${id}`).oninput=renderImages);$('#imageReset').onclick=()=>{$('#imageDate').value='';$('#imageWorkshop').value='';$('#imageProcess').value='';$('#imageSource').value='';$('#criticalOnly').checked=false;renderImages();};

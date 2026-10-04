@@ -54,7 +54,7 @@ Chromium 使用真实文件完成 PDF.js 文字/表格和图片解码、不同�
 KHAYRAT_REAL_PDFS='[{"path":"/absolute/private-report.pdf","date":"2026-09-30","chinese":67,"local":30}]' npm run test:e2e
 ```
 
-CI 不设置该变量时仅执行 12 项隔离浏览器测试，不冒充真实日报验收。
+CI 不设置该变量时仅执行隔离浏览器测试，不冒充真实日报验收。
 
 ## 生产只读检查
 
@@ -83,3 +83,27 @@ Vercel 生产仅有 SUPABASE_URL、SUPABASE_ANON_KEY、SUPABASE_STORAGE_BUCKET�
 3. 获批后配置 `VISION_PROVIDER=openai`、固定 `VISION_MODEL`、`OPENAI_API_KEY`、`AI_ALLOWED_USER_EMAILS`（现有获准邮箱）、`AI_FEATURES_APPROVED=true`；保持 `OCR_ENABLED=false`，除非另批准 OCR。白名单不得扩大 Supabase 实际权限。
 4. 另行批准现有项目 Preview 的测试环境连接/写入以及必要的预览更新，用户完成 Supabase 邮箱登录。未经授权，不对生产数据库或生产部署做变更。
 5. 完成真实模型 33 图结果及人工复核、真实私有存储/数据库保存验收后，再决定生产发布。未完成这一步之前，不声称 AI 效果或生产端到端已验收。
+
+## 免费视觉方案（2026-10-04 更新）
+
+用户希望低用量阶段使用免费模型。新增 Groq Free Plan 适配器，固定 `qwen/qwen3.8-27b` 和官方 Chat Completions 地址，默认示例配置改为 Groq，所有 AI 功能仍默认关闭。官方当日免费额度：30 请求/分钟、1,000 请求/日、8,000 token/分钟、200,000 token/日；每图计 2,048 输入 token。33 图的图片部分约 67,584 输入 token，另需计入提示词、配对原文、结构约束和输出，不能把请求数直接换算成图片额度。实际账号限制应在控制台确认。该模型是 Preview，可能变更或停用，施工图识别质量未实测。
+
+使用 Groq JSON object mode 并由服务端严格验证结果结构；继续保留用户身份验证、邮箱白名单、私有对象 RLS、配对原文、事实/推断分离及人工复核。模型或服务不可用、额度耗尽时停止，无自动重试、无付费 fallback。浏览器最多每 61 秒发送一张，支持停止后续分析并保留当前返回结果；多标签或多人使用仍可能触发组织总额度。OCR 没有扩展到 Groq，继续关闭。
+
+服务商改变时，OpenAI 旧授权不能重用：请求必须明确 `provider=groq`，界面显示 Groq、模型及数据处理提示；旧客户端/错误服务商授权在任何外部请求前拒绝。两类 API key 均只留服务端，不返回给浏览器。
+
+**费用与隐私**：Groq Free Plan 在免费额度内使用；账户必须实际保持 Free Plan，不升级 Developer、不绑定付费。代码要求 `GROQ_FREE_TIER_CONFIRMED=true`，这只是管理员确认标记，不能通过 API 自动核验账单状态，管理员改变账单时必须重新检查。Groq 普通推理默认不保存内容，但排障/滥用调查可暂存最多 30 天；所有客户均可在 Data Controls 启用 Zero Data Retention，试跑前应由用户完成。Gemini 2.5 Flash/Flash-Lite 也有免费图像输入，但官方声明免费层输入输出用于改进产品，故没有直接把私有施工资料切到 Gemini。
+
+**当前授权状态**：用户此前批准的是 OpenAI 接收 33 张照片及配对原文、上限 $1；并不包括 Groq。此次完成接口代码及隔离验证，但未把任何真实图像发送到 Groq，没有启用付费服务、修改生产变量、生产数据或生产部署。
+
+**免费适配器验证结果**：`npm run check` 89 项通过；Chromium 17 项通过（原 15 项含 3 份真实日报回归，加 2 项免费接口隔离测试）。新增 8 项单元/安全测试覆盖 Free Plan 确认开关、固定模型与地址、服务商授权不复用、JSON 结果验证、额度耗尽不重试/不转付费、身份/RLS/存储校验、浏览器只发 ID/授权/服务商、停止调用等待。真实日报继续验证解析、人员表、每图来源、重复导入及隔离保存；Groq 响应是明确的 MOCK，不能视为真实视觉验收。
+
+**需要人工完成**：批准 Groq 接收同一 33 张照片及对应原文用于识别及交叉验证；登录/注册 Groq 免费账号并自行接受条款，确认 Free Plan 和零数据保留；在现有 Vercel 项目 PR Preview 分支安全填写 `GROQ_API_KEY`。然后才可设置 `VISION_PROVIDER=groq`、`VISION_MODEL=qwen/qwen3.8-27b`、`GROQ_FREE_TIER_CONFIRMED=true`、获准邮箱及 `AI_FEATURES_APPROVED=true`。保持 OCR 关闭。预览环境真实写入和生产操作的原有授权边界不变。
+
+官方核实来源：
+- https://console.groq.com/docs/vision
+- https://console.groq.com/docs/model/qwen/qwen3.8-27b
+- https://console.groq.com/docs/rate-limits
+- https://console.groq.com/docs/billing-faqs
+- https://console.groq.com/docs/your-data
+- https://ai.google.dev/gemini-api/docs/pricing

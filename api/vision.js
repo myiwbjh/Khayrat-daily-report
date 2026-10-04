@@ -1,10 +1,11 @@
 import { parseBody, requireConsent, authorizeAI } from "../server/ai-auth.js";
 import {
   storedImage,
-  openAIImage,
+  visionImage,
   VISION_SCHEMA,
   validateVision,
 } from "../server/vision-service.js";
+import { requireProviderConsent } from '../server/vision-provider.js';
 export default async function handler(request, response) {
   response.setHeader("Cache-Control", "no-store");
   if (request.method !== "POST")
@@ -12,9 +13,10 @@ export default async function handler(request, response) {
   try {
     const body = parseBody(request.body);
     requireConsent(body);
+    requireProviderConsent(body);
     const auth = await authorizeAI(request),
       image = await storedImage(body.imageId, auth),
-      analysis = await openAIImage(image.dataUrl, image.context, VISION_SCHEMA);
+      analysis = await visionImage(image.dataUrl, image.context, VISION_SCHEMA);
     validateVision(analysis.result);
     return response
       .status(200)

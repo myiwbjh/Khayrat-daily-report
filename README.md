@@ -35,9 +35,11 @@
 | `ACCESS_CONTROL_REQUIRED` | 建议 | Vercel | 正式环境保持 `true`；AI 接口独立验证真实身份、白名单和 RLS，不受此开关绕过 |
 | `AI_FEATURES_APPROVED` | AI 可选 | **仅 Vercel 服务端** | 默认 `false`；仅负责人批准费用与传输后开启 |
 | `AI_ALLOWED_USER_EMAILS` | AI 必需 | **仅 Vercel 服务端** | 逗号分隔获准邮箱；空值拒绝全部用户；不能扩大现有 RLS |
-| `VISION_PROVIDER` | AI 必需 | **仅 Vercel 服务端** | 固定 `openai` |
-| `VISION_MODEL` | AI 可选 | **仅 Vercel 服务端** | 固定 `gpt-4.1-mini-2025-04-14` |
-| `OPENAI_API_KEY` | AI 必需 | **仅 Vercel 服务端** | 负责人安全填写；不得粘贴到聊天或仓库 |
+| `VISION_PROVIDER` | AI 必需 | **仅 Vercel 服务端** | 免费方案 `groq`；另行授权的付费方案 `openai`；无自动切换 |
+| `VISION_MODEL` | AI 可选 | **仅 Vercel 服务端** | Groq 固定 `qwen/qwen3.8-27b`；OpenAI 固定 `gpt-4.1-mini-2025-04-14` |
+| `GROQ_API_KEY` | 免费 AI 必需 | **仅 Vercel 服务端** | 用户安全填写，Free Plan 及零数据保留需控制台确认 |
+| `GROQ_FREE_TIER_CONFIRMED` | 免费 AI 必需 | **仅 Vercel 服务端** | 默认 `false`，确认账号仍为 Free Plan 后设为 `true`；标记不能自动验证账单 |
+| `OPENAI_API_KEY` | 付费 AI/OCR 可选 | **仅 Vercel 服务端** | 负责人安全填写；不得粘贴到聊天或仓库 |
 | `OCR_ENABLED` | OCR 可选 | **仅 Vercel 服务端** | 默认 `false`；开启后仍需每次扫描页传输授权 |
 
 不得把 Supabase `service_role`、OCR 或视觉服务密钥放入 `app.js`、GitHub 仓库或任何 `VITE_*`/公开前端变量。`/api/config` 只返回允许公开的 URL、anon key 和功能开关。
@@ -133,7 +135,7 @@ CSV 首行或 Excel 首行是字段名。支持以下中文名，也支持代码
 2. PDF 优先加载构建时打包的同源 PDF.js 和 worker（包含浏览器兼容补丁），按页提取文字和坐标；不可用时降级到支持未压缩或 `FlateDecode` 内容流的内置解析器。无法映射的关键字段进入 `reviewFields`，不会补造数值。
 3. PDF.js 解码的图片转换为 PNG，在云端模式上传到私有 Storage；云端持久层只记录唯一 `imageId`、对象路径、文件名、页码、页内顺序、邻近文字和日报关联。
 4. PDF.js 保留文字/表格列、向量边框及图片坐标；按同栏施工段和明确图注关联各图。重复页眉保留在布局中，连续图块合成为照片；多工序照片保留候选活动，具体工序须复核。无布局的降级解析禁止整页关联。人员汇总只计项目当日口径，工程量必须有明确当日/累计及单位。
-5. 未调用视觉服务时仅显示配对日报原文，场景为“无法判断”，不再冒充像素识别。授权后的 `ImageAnalysisProvider` 仅发送图片 ID 与同意标记；后端验证身份、账号白名单、证据 RLS 与私有 Storage 权限，再发送一张图及该图对应原文至 OpenAI。模型结果保留可见事实、推断、限制与交叉验证，人工修正同步云端，原始自动结果继续留存。
+5. 未调用视觉服务时仅显示配对日报原文，场景为“无法判断”。授权后的 `ImageAnalysisProvider` 仅发送图片 ID、同意标记与所授权服务商；后端验证身份、账号白名单、证据 RLS 与私有 Storage 权限，再发送一张图及该图对应原文至明确授权的 Groq 或 OpenAI。更换平台需重新授权。Groq 免费方案单图间隔约一分钟，可停止后续分析，额度不足停止，不自动转付费。模型结果保留可见事实、推断、限制与交叉验证，人工修正同步云端，原始自动结果继续留存。
 6. 人工复核可以修改日期、车间、工序、关联日报、场景、标签、说明和证据类型，也可以标为关键证据或忽略。
 7. 无论置信度高低，AI 推断都不能单独作为停工、设备到货或质量验收结论；最终状态必须人工确认或有其他直接记录支撑。
 

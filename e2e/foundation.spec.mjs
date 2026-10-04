@@ -5,14 +5,15 @@ const fixture=resolve('test/fixtures/synthetic-reports.pdf');
 const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'authenticated',email:'qa@example.test',app_metadata:{provider:'email'},user_metadata:{}};
 function token(exp=Math.floor(Date.now()/1000)+3600){return [Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url'),Buffer.from(JSON.stringify({...user,sub:user.id,exp,iat:Math.floor(Date.now()/1000)})).toString('base64url'),'synthetic-not-a-real-signature'].join('.');}
 function session(exp){return {access_token:token(exp),refresh_token:'synthetic-refresh-token',expires_in:3600,expires_at:exp||Math.floor(Date.now()/1000)+3600,token_type:'bearer',user};}
-async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false}={}){
+async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity}={}){
   const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[]};
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());
     if(url.origin==='http://127.0.0.1:4173'){
-      if(url.pathname==='/api/config')return route.fulfill({json:configured?{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'synthetic-public-key',storageBucket:'test-reports',ocrEnabled:false,visionEnabled,authRequired:true}:{supabaseUrl:'',supabaseAnonKey:''}});
+      if(url.pathname==='/api/config')return route.fulfill({json:configured?{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'synthetic-public-key',storageBucket:'test-reports',ocrEnabled:false,visionEnabled,...(freeVision?{visionProviderId:"groq",visionProvider:"Groq",visionModel:"qwen/qwen3.8-27b",visionMinIntervalMs:visionInterval,visionCostNotice:"Free Plan：额度用尽停止",visionPrivacyNotice:"Groq 处理图片"}:{}),authRequired:true}:{supabaseUrl:'',supabaseAnonKey:''}});
       if(url.pathname==='/api/vision'){
         state.visionCalls.push({body:request.postDataJSON(),authorization:request.headers().authorization});
+        if(state.visionCalls.length>visionQuotaAfter)return route.fulfill({status:429,json:{error:"免费视觉额度已达上限；不会自动切换付费服务。"}});
         return route.fulfill({json:{scene:'材料堆放',visibleFacts:['SYNTHETIC: visible rebar'],activities:[],equipment:[],materials:['钢筋'],structures:[],stage:'无法判断',inferences:['SYNTHETIC: preparation'],limitations:['照片不能证明工程量'],summary:'SYNTHETIC VISION RESPONSE',confidence:.7,crossValidation:{status:'insufficient-evidence',reason:'SYNTHETIC: not conclusive'},textFacts:'配对原文',model:'mock-vision-model',provider:'mock-only',usage:{total_tokens:100}}});
       }
       return route.continue();
@@ -107,4 +108,16 @@ test('vision stays disabled without approved configuration and consent; manual i
 
 test('MOCK vision consent gates authenticated ID-only request; human correction retains model facts and saves cloud review',async({page})=>{
   const state=await sandbox(page,{visionEnabled:true});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('[data-open-image]').first().click();await page.locator('#analyzeImage').click();await expect(page.locator('#toast')).toContainText('传输授权');expect(state.visionCalls).toHaveLength(0);await page.locator('#closeImageDialog').click();await page.locator('#visionConsent').check();await page.locator('[data-open-image]').first().click();await page.locator('#analyzeImage').click();await expect(page.locator('#imageVisibleFacts')).toContainText('SYNTHETIC: visible rebar');expect(state.visionCalls).toHaveLength(1);expect(state.visionCalls[0].body).toEqual({imageId:state.images[0].image_id,consent:true});expect(state.visionCalls[0].authorization).toContain('Bearer ');expect(state.images[0].payload.manualReviewed).toBe(false);await page.locator('#imageForm [name=reviewedVisibleFacts]').fill('人工确认：模板');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();expect(state.images[0].payload.visibleFacts).toEqual(['人工确认：模板']);expect(state.images[0].payload.automaticAnalysis.visibleFacts).toEqual(['SYNTHETIC: visible rebar']);expect(state.images[0].payload.manualReview.confirmed).toBe(true);expect(state.images[0].payload.confidence).toBe(.7);
+});
+
+
+test('MOCK free vision displays Groq consent, paces batch and stop prevents second transmission',async({page})=>{
+  const state=await sandbox(page,{visionEnabled:true,freeVision:true});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();
+  await expect(page.locator('#visionConsentText')).toContainText('Groq');await expect(page.locator('#visionStatus')).toContainText('Free Plan');await page.locator('#visionConsent').check();await page.locator('#analyzeImages').click();
+  await expect(page.locator('#visionStatus')).toContainText('等待免费服务调用间隔');expect(state.visionCalls).toHaveLength(1);expect(state.visionCalls[0].body.provider).toBe('groq');
+  await page.locator('#stopVision').click();await expect(page.locator('#analyzeImages')).toBeEnabled();expect(state.visionCalls).toHaveLength(1);expect(state.images.filter(i=>i.payload.visionEnabled)).toHaveLength(1);await expect(page.locator('#stopVision')).toBeDisabled();expect(state.blocked).toEqual([]);
+});
+test('MOCK free quota error stops batch and retains first result without fallback or retry',async({page})=>{
+  const state=await sandbox(page,{visionEnabled:true,freeVision:true,visionInterval:0,visionQuotaAfter:1});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('#visionConsent').check();await page.locator('#analyzeImages').click();
+  await expect(page.locator('#toast')).toContainText('不会自动切换付费');await expect(page.locator('#analyzeImages')).toBeEnabled();expect(state.visionCalls).toHaveLength(2);expect(state.visionCalls.every(c=>c.body.provider==='groq')).toBe(true);expect(state.images.filter(i=>i.payload.visionEnabled)).toHaveLength(1);expect(state.blocked).toEqual([]);
 });
