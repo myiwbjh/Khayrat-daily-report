@@ -2,11 +2,11 @@ import {test,expect} from '@playwright/test';
 import {resolve} from 'node:path';
 
 const fixture=resolve('test/fixtures/synthetic-reports.pdf');
-const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'authenticated',email:'qa@example.test',app_metadata:{provider:'email'},user_metadata:{}};
+const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'authenticated',email:'qa@example.test',email_confirmed_at:'2026-10-04T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}};
 function token(exp=Math.floor(Date.now()/1000)+3600){return [Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url'),Buffer.from(JSON.stringify({...user,sub:user.id,exp,iat:Math.floor(Date.now()/1000)})).toString('base64url'),'synthetic-not-a-real-signature'].join('.');}
 function session(exp){return {access_token:token(exp),refresh_token:'synthetic-refresh-token',expires_in:3600,expires_at:exp||Math.floor(Date.now()/1000)+3600,token_type:'bearer',user};}
-async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity}={}){
-  const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[]};
+async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity,failVerify=false}={}){
+  const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,verifications:[],refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[]};
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());
     if(url.origin==='http://127.0.0.1:4173'){
@@ -20,6 +20,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
     }
     if(url.origin!=='https://qa.supabase.test'){state.blocked.push(url.origin);return route.abort();}
     if(url.pathname==='/auth/v1/otp'){state.otp={body:request.postDataJSON(),redirect:url.searchParams.get('redirect_to')};return route.fulfill({json:{}});}
+    if(url.pathname==='/auth/v1/verify'){state.verifications.push({body:request.postDataJSON(),method:request.method(),url:request.url()});return failVerify?route.fulfill({status:403,json:{error_code:'otp_expired',msg:'SYNTHETIC private upstream token=do-not-display'}}):route.fulfill({json:session()});}
     if(url.pathname==='/auth/v1/user')return route.fulfill({json:user});
     if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
     if(url.pathname==='/auth/v1/token'){state.refreshes++;return route.fulfill({json:session()});}
@@ -47,7 +48,7 @@ async function login(page){const s=session();await page.goto(`/#access_token=${s
 async function upload(page){await page.locator('#fileInput').setInputFiles(fixture);await expect(page.locator('#importSummary')).toContainText('2 条记录、4 张图片',{timeout:25000});}
 
 test('first email login uses correct redirect, remembered session restores and logout is explicit',async({page})=>{
-  const state=await sandbox(page);await page.goto('/');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#loginEmail').fill(user.email);await page.locator('#sendLogin').click();await expect(page.locator('#loginError')).toContainText('登录链接已发送');expect(state.otp.body.create_user).toBe(false);expect(state.otp.redirect).toBe('http://127.0.0.1:4173/');
+  const state=await sandbox(page);await page.goto('/');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#loginEmail').fill(user.email);await page.locator('#sendLogin').click();await expect(page.locator('#loginError')).toContainText('邮件已发送');expect(state.otp.body.create_user).toBe(false);expect(state.otp.redirect).toBe('http://127.0.0.1:4173/');
   await login(page);await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');await page.locator('#signOutButton').click();await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.reload();await expect(page.locator('#cloudStatus')).toContainText('点击登录');expect(state.blocked).toEqual([]);
 });
 test('expired remembered session refreshes through SDK rather than using stale access token',async({page})=>{
@@ -120,4 +121,24 @@ test('MOCK free vision displays Groq consent, paces batch and stop prevents seco
 test('MOCK free quota error stops batch and retains first result without fallback or retry',async({page})=>{
   const state=await sandbox(page,{visionEnabled:true,freeVision:true,visionInterval:0,visionQuotaAfter:1});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('#visionConsent').check();await page.locator('#analyzeImages').click();
   await expect(page.locator('#toast')).toContainText('不会自动切换付费');await expect(page.locator('#analyzeImages')).toBeEnabled();expect(state.visionCalls).toHaveLength(2);expect(state.visionCalls.every(c=>c.body.provider==='groq')).toBe(true);expect(state.images.filter(i=>i.payload.visionEnabled)).toHaveLength(1);expect(state.blocked).toEqual([]);
+});
+
+const freshEmailLink='https://qa.supabase.test/auth/v1/verify?token='+ 'a'.repeat(64)+'&type=magiclink&redirect_to=https://other.test/';
+test('current-page email verification restores after reload without navigating to mail redirect',async({page})=>{
+  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();
+  await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#verifyLogin').click();
+  await expect(page.locator('#loginDialog')).not.toBeVisible();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');
+  expect(state.verifications).toHaveLength(1);expect(state.verifications[0].body).toEqual({token_hash:'a'.repeat(64),type:'email',gotrue_meta_security:{}});expect(state.verifications[0].method).toBe('POST');
+  expect(page.url()).toBe('http://127.0.0.1:4173/');expect(state.blocked).toEqual([]);await expect(page.locator('#loginLink')).toHaveValue('');
+  expect(await page.evaluate(()=>JSON.stringify({...localStorage}))).not.toContain('a'.repeat(64));
+  await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');
+});
+test('expired mail link keeps app logged out and hides secret upstream error',async({page})=>{
+  const state=await sandbox(page,{failVerify:true});await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#verifyLogin').click();
+  await expect(page.locator('#verifyLoginError')).toContainText('已使用');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await expect(page.locator('#loginLink')).toHaveValue('');
+  expect(await page.locator('#verifyLoginError').innerText()).not.toContain('private upstream');expect(state.verifications).toHaveLength(1);expect(state.posts).toBe(0);
+});
+test('foreign mail issuer is rejected and cancellation clears the input',async({page})=>{
+  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink.replace('qa.supabase.test','other.supabase.test'));await page.locator('#verifyLogin').click();
+  await expect(page.locator('#verifyLoginError')).toContainText('本项目');expect(state.verifications).toHaveLength(0);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#cancelLogin').click();await expect(page.locator('#loginLink')).toHaveValue('');
 });
