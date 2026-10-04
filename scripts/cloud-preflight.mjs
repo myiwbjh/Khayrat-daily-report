@@ -1,5 +1,5 @@
 const required=['SUPABASE_URL','SUPABASE_ANON_KEY'];
-const optional=['VERCEL_TOKEN','SUPABASE_ACCESS_TOKEN','OCR_API_URL','OCR_API_KEY','VISION_API_URL','VISION_API_KEY'];
+const optional=['VERCEL_TOKEN','SUPABASE_ACCESS_TOKEN','OPENAI_API_KEY','VISION_PROVIDER','VISION_MODEL','AI_FEATURES_APPROVED','AI_ALLOWED_USER_EMAILS','OCR_ENABLED'];
 const endpoints=['https://api.github.com','https://api.vercel.com','https://api.supabase.com'];
 let failed=false;
 console.log('Khayrat cloud deployment preflight (credential values are never printed)');

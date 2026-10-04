@@ -2,7 +2,7 @@
 
 面向伊拉克 Samawah **Khayrat 3,200 TPD 水泥粉磨站 EPC 项目**的工程日报分析系统。系统默认不显示虚构项目数据；导入真实日报后才计算指标。内置数据仅用于演示，并始终显示“示例数据模式”。
 
-本次基础功能检查、数据模型与验证范围见 [基础功能验收记录](docs/foundation-review.md)。
+本次 PDF 图文与视觉升级、真实日报验收范围及费用授权见 [升级验收记录](docs/layout-vision-review.md)。基础功能检查见 [基础功能验收记录](docs/foundation-review.md)。
 
 ## 现有架构：GitHub + Vercel + Supabase
 
@@ -32,11 +32,13 @@
 | `SUPABASE_URL` | 云存储必需 | Vercel | Supabase Project URL |
 | `SUPABASE_ANON_KEY` | 云存储必需 | Vercel | 可公开的 anon key；安全性依赖 RLS，不是 service-role key |
 | `SUPABASE_STORAGE_BUCKET` | 否 | Vercel | 默认 `khayrat-reports` |
-| `ACCESS_CONTROL_REQUIRED` | 建议 | Vercel | 正式环境保持 `true`；OCR/视觉代理要求 Authorization |
-| `OCR_API_URL` | 扫描 PDF 可选 | Vercel | 后端 OCR 服务地址 |
-| `OCR_API_KEY` | 扫描 PDF 可选 | **仅 Vercel 服务端** | 不会发送到浏览器 |
-| `VISION_API_URL` | 视觉识别可选 | Vercel | 后端视觉服务地址 |
-| `VISION_API_KEY` | 视觉识别可选 | **仅 Vercel 服务端** | 不会发送到浏览器 |
+| `ACCESS_CONTROL_REQUIRED` | 建议 | Vercel | 正式环境保持 `true`；AI 接口独立验证真实身份、白名单和 RLS，不受此开关绕过 |
+| `AI_FEATURES_APPROVED` | AI 可选 | **仅 Vercel 服务端** | 默认 `false`；仅负责人批准费用与传输后开启 |
+| `AI_ALLOWED_USER_EMAILS` | AI 必需 | **仅 Vercel 服务端** | 逗号分隔获准邮箱；空值拒绝全部用户；不能扩大现有 RLS |
+| `VISION_PROVIDER` | AI 必需 | **仅 Vercel 服务端** | 固定 `openai` |
+| `VISION_MODEL` | AI 可选 | **仅 Vercel 服务端** | 固定 `gpt-4.1-mini-2025-04-14` |
+| `OPENAI_API_KEY` | AI 必需 | **仅 Vercel 服务端** | 负责人安全填写；不得粘贴到聊天或仓库 |
+| `OCR_ENABLED` | OCR 可选 | **仅 Vercel 服务端** | 默认 `false`；开启后仍需每次扫描页传输授权 |
 
 不得把 Supabase `service_role`、OCR 或视觉服务密钥放入 `app.js`、GitHub 仓库或任何 `VITE_*`/公开前端变量。`/api/config` 只返回允许公开的 URL、anon key 和功能开关。
 
@@ -130,9 +132,10 @@ CSV 首行或 Excel 首行是字段名。支持以下中文名，也支持代码
 1. CSV、Excel 和 PDF 各自由适配器解析，输出相同的标准日报对象；导入前先显示记录、重复项、图片和错误预览，确认后才通过事务写入，后续分析共用一套逻辑。
 2. PDF 优先加载构建时打包的同源 PDF.js 和 worker（包含浏览器兼容补丁），按页提取文字和坐标；不可用时降级到支持未压缩或 `FlateDecode` 内容流的内置解析器。无法映射的关键字段进入 `reviewFields`，不会补造数值。
 3. PDF.js 解码的图片转换为 PNG，在云端模式上传到私有 Storage；云端持久层只记录唯一 `imageId`、对象路径、文件名、页码、页内顺序、邻近文字和日报关联。
-4. 未配置视觉服务时，基础分析器只根据文件名、邻近文字和人工元数据分类，并明确提示“尚未启用真实视觉识别”。`ImageAnalysisProvider` 可在用户授权后把像素数据发送到受控后端；前端不保存 API 密钥。
-5. 人工复核可以修改日期、车间、工序、关联日报、场景、标签、说明和证据类型，也可以标为关键证据或忽略。
-6. 无论置信度高低，AI 推断都不能单独作为停工、设备到货或质量验收结论；最终状态必须人工确认或有其他直接记录支撑。
+4. PDF.js 保留文字/表格列、向量边框及图片坐标；按同栏施工段和明确图注关联各图。重复页眉保留在布局中，连续图块合成为照片；多工序照片保留候选活动，具体工序须复核。无布局的降级解析禁止整页关联。人员汇总只计项目当日口径，工程量必须有明确当日/累计及单位。
+5. 未调用视觉服务时仅显示配对日报原文，场景为“无法判断”，不再冒充像素识别。授权后的 `ImageAnalysisProvider` 仅发送图片 ID 与同意标记；后端验证身份、账号白名单、证据 RLS 与私有 Storage 权限，再发送一张图及该图对应原文至 OpenAI。模型结果保留可见事实、推断、限制与交叉验证，人工修正同步云端，原始自动结果继续留存。
+6. 人工复核可以修改日期、车间、工序、关联日报、场景、标签、说明和证据类型，也可以标为关键证据或忽略。
+7. 无论置信度高低，AI 推断都不能单独作为停工、设备到货或质量验收结论；最终状态必须人工确认或有其他直接记录支撑。
 
 手工和表格日报保存在 IndexedDB 轻量缓存；PDF 批次采用下述云端优先顺序，把原始 PDF、结构化日报、图片和导入审计保存到 Supabase 后再落本地元数据，以便跨设备访问。
 

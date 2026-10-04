@@ -1,2 +1,35 @@
-function allowed(request){if(process.env.ACCESS_CONTROL_REQUIRED==='false')return true;return Boolean(request.headers.authorization);}
-export default async function handler(request,response){if(request.method!=='POST')return response.status(405).json({error:'Method not allowed'});if(!allowed(request))return response.status(401).json({error:'Authentication required'});if(!process.env.VISION_API_URL||!process.env.VISION_API_KEY)return response.status(503).json({error:'Vision service is not configured'});try{const upstream=await fetch(process.env.VISION_API_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${process.env.VISION_API_KEY}`},body:JSON.stringify(request.body)});const body=await upstream.text();response.status(upstream.status).setHeader('Content-Type',upstream.headers.get('content-type')||'application/json').send(body);}catch(error){response.status(502).json({error:'Vision upstream failed',detail:error.message});}}
+import { parseBody, requireConsent, authorizeAI } from "../server/ai-auth.js";
+import {
+  storedImage,
+  openAIImage,
+  VISION_SCHEMA,
+  validateVision,
+} from "../server/vision-service.js";
+export default async function handler(request, response) {
+  response.setHeader("Cache-Control", "no-store");
+  if (request.method !== "POST")
+    return response.status(405).json({ error: "Method not allowed" });
+  try {
+    const body = parseBody(request.body);
+    requireConsent(body);
+    const auth = await authorizeAI(request),
+      image = await storedImage(body.imageId, auth),
+      analysis = await openAIImage(image.dataUrl, image.context, VISION_SCHEMA);
+    validateVision(analysis.result);
+    return response
+      .status(200)
+      .json({
+        ...analysis.result,
+        provider: analysis.provider,
+        model: analysis.model,
+        usage: analysis.usage,
+        analyzedAt: analysis.analyzedAt,
+        textFacts: image.context,
+        reviewRecommended: true,
+      });
+  } catch (error) {
+    return response
+      .status(error.status || 502)
+      .json({ error: error.status ? error.message : "AI service unavailable" });
+  }
+}

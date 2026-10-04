@@ -1,5 +1,5 @@
 import {evidenceOf} from './report-model.js';
-const key=r=>[r.workshop,r.process,r.activityId||'',r.equipmentName||''].map(x=>String(x||'').trim().toLowerCase()).join('|');
+const key=r=>[r.workshop,r.process,r.recordType==='personnel-summary'?`personnel-${r.personnelStatistics?.scope||r.staffScope}-${r.personnelStatistics?.timeBasis||'current'}`:r.activityId||'',r.equipmentName||''].map(x=>String(x||'').trim().toLowerCase()).join('|');
 const known=(r,field)=>!r.reviewFields?.includes(field)&&r[field]!=null&&r[field]!=='';
 function change(before,after,field){return known(before,field)&&known(after,field)?after[field]-before[field]:null;}
 function state(value){if(/^(停工|stopped|suspended)$/i.test(value))return 0;if(/^(施工中|作业中|construction|working|in progress)$/i.test(value))return 1;if(/^(完成|已完成|completed)$/i.test(value))return 2;return null;}
