@@ -56,10 +56,19 @@ try{
 $('#cloudStatus').onclick=async()=>{
   if(!cloud?.configured)return toast('部署环境尚未配置 Supabase',true);
   if(cloud.token){try{await hydrateCloud();toast('云端数据已读取');}catch(error){toast(error.message,true);}return;}
-  $('#loginError').textContent='';$('#loginDialog').showModal();
+  $('#loginError').textContent='';$('#verifyLoginError').textContent='';$('#loginLink').value='';$('#loginDialog').showModal();
 };
-$('#loginForm').onsubmit=async event=>{event.preventDefault();const button=$('#sendLogin');button.disabled=true;try{await cloud.requestMagicLink($('#loginEmail').value,location.origin+location.pathname);$('#loginError').textContent='登录链接已发送。首次验证后，此浏览器将自动恢复登录。';}catch(error){$('#loginError').textContent=error.message;}finally{button.disabled=false;}};
-$('#cancelLogin').onclick=()=>$('#loginDialog').close();
+$('#loginForm').onsubmit=async event=>{event.preventDefault();const button=$('#sendLogin');button.disabled=true;try{await cloud.requestMagicLink($('#loginEmail').value,location.origin+location.pathname);$('#verifyLoginEmail').value=$('#loginEmail').value;$('#loginError').textContent='邮件已发送。请在需要登录的同一浏览器打开链接，或复制尚未打开的链接，在下方验证。其他浏览器的登录不会同步到这里。';}catch{$('#loginError').textContent='登录邮件未能发送；可能达到邮件限额，请稍后重试。';}finally{button.disabled=false;}};
+$('#verifyLoginForm').onsubmit=async event=>{
+  event.preventDefault();const button=$('#verifyLogin'),link=$('#loginLink').value;$('#loginLink').value='';button.disabled=true;$('#verifyLoginError').textContent='正在验证';
+  try{
+    if(!auth)throw new Error('登录服务暂不可用，请刷新重试。');
+    await auth.verifyEmailLink(link,$('#verifyLoginEmail').value);$('#verifyLoginError').textContent='';$('#loginDialog').close();
+    try{await hydrateCloud();toast('已登录，云端数据已读取');}catch{toast('已登录，云端数据读取失败，请点击云端状态重试',true);}
+  }catch(error){$('#verifyLoginError').textContent=error.message;}finally{button.disabled=false;}
+};
+$('#cancelLogin').onclick=()=>{$('#loginLink').value='';$('#loginDialog').close();};
+$('#loginDialog').addEventListener('cancel',()=>{$('#loginLink').value='';});
 $('#signOutButton').onclick=async()=>{try{await auth.signOut();for(const image of evidenceStore.all())delete image.signedUrl;renderImages();toast('已退出登录；此浏览器保存的日报仍保留');}catch(error){toast(error.message,true);}};
 
 
