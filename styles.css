@@ -20,3 +20,7 @@
 .comparison-card p{line-height:1.7;margin:10px 0}.comparison-card blockquote{padding:12px;border-left:3px solid #4c87a1}
 #loginDialog,#sourceDialog{border:1px solid #cbd5e1;border-radius:14px;padding:24px;width:min(720px,90vw)}
 #loginForm input{display:block;padding:12px;width:100%;margin:8px 0}
+
+/* Checkboxes remain compact inside the shared filter controls. */
+.filters input[type="checkbox"] { width:16px; height:16px; padding:0; }
+#imageProvenance { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; }

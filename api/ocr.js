@@ -1,2 +1,49 @@
-function allowed(request){if(process.env.ACCESS_CONTROL_REQUIRED==='false')return true;return Boolean(request.headers.authorization);}
-export default async function handler(request,response){if(request.method!=='POST')return response.status(405).json({error:'Method not allowed'});if(!allowed(request))return response.status(401).json({error:'Authentication required'});if(!process.env.OCR_API_URL||!process.env.OCR_API_KEY)return response.status(503).json({error:'OCR service is not configured'});try{const upstream=await fetch(process.env.OCR_API_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${process.env.OCR_API_KEY}`},body:JSON.stringify(request.body)});const body=await upstream.text();response.status(upstream.status).setHeader('Content-Type',upstream.headers.get('content-type')||'application/json').send(body);}catch(error){response.status(502).json({error:'OCR upstream failed',detail:error.message});}}
+import {
+  parseBody,
+  requireConsent,
+  authorizeAI,
+  imageData,
+  ApiError,
+} from "../server/ai-auth.js";
+import { openAIImage, OCR_SCHEMA } from "../server/vision-service.js";
+export default async function handler(request, response) {
+  response.setHeader("Cache-Control", "no-store");
+  if (request.method !== "POST")
+    return response.status(405).json({ error: "Method not allowed" });
+  try {
+    const body = parseBody(request.body);
+    requireConsent(body);
+    await authorizeAI(request);
+    if (process.env.OCR_ENABLED !== "true")
+      throw new ApiError(503, "OCR is disabled");
+    const analysis = await openAIImage(
+        imageData(body.imageDataUrl),
+        "",
+        OCR_SCHEMA,
+        { ocr: true },
+      ),
+      r = analysis.result;
+    if (
+      typeof r?.text !== "string" ||
+      r.text.length > 30000 ||
+      !Array.isArray(r.uncertainSegments) ||
+      r.uncertainSegments.some((s) => typeof s !== "string")
+    )
+      throw new ApiError(502, "Invalid OCR result");
+    return response
+      .status(200)
+      .json({
+        ...r,
+        model: analysis.model,
+        usage: analysis.usage,
+        layoutVerified: false,
+        reviewRequired: true,
+      });
+  } catch (error) {
+    return response
+      .status(error.status || 502)
+      .json({
+        error: error.status ? error.message : "OCR service unavailable",
+      });
+  }
+}

@@ -5,12 +5,17 @@ const fixture=resolve('test/fixtures/synthetic-reports.pdf');
 const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'authenticated',email:'qa@example.test',app_metadata:{provider:'email'},user_metadata:{}};
 function token(exp=Math.floor(Date.now()/1000)+3600){return [Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url'),Buffer.from(JSON.stringify({...user,sub:user.id,exp,iat:Math.floor(Date.now()/1000)})).toString('base64url'),'synthetic-not-a-real-signature'].join('.');}
 function session(exp){return {access_token:token(exp),refresh_token:'synthetic-refresh-token',expires_in:3600,expires_at:exp||Math.floor(Date.now()/1000)+3600,token_type:'bearer',user};}
-async function sandbox(page,{configured=true,failUpload=false,failSave=false}={}){
-  const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,refreshes:0,posts:0,failUpload,failSave,blocked:[]};
+async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity}={}){
+  const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[]};
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());
     if(url.origin==='http://127.0.0.1:4173'){
-      if(url.pathname==='/api/config')return route.fulfill({json:configured?{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'synthetic-public-key',storageBucket:'test-reports',ocrEnabled:false,authRequired:true}:{supabaseUrl:'',supabaseAnonKey:''}});
+      if(url.pathname==='/api/config')return route.fulfill({json:configured?{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'synthetic-public-key',storageBucket:'test-reports',ocrEnabled:false,visionEnabled,...(freeVision?{visionProviderId:"groq",visionProvider:"Groq",visionModel:"qwen/qwen3.8-27b",visionMinIntervalMs:visionInterval,visionCostNotice:"Free Plan：额度用尽停止",visionPrivacyNotice:"Groq 处理图片"}:{}),authRequired:true}:{supabaseUrl:'',supabaseAnonKey:''}});
+      if(url.pathname==='/api/vision'){
+        state.visionCalls.push({body:request.postDataJSON(),authorization:request.headers().authorization});
+        if(state.visionCalls.length>visionQuotaAfter)return route.fulfill({status:429,json:{error:"免费视觉额度已达上限；不会自动切换付费服务。"}});
+        return route.fulfill({json:{scene:'材料堆放',visibleFacts:['SYNTHETIC: visible rebar'],activities:[],equipment:[],materials:['钢筋'],structures:[],stage:'无法判断',inferences:['SYNTHETIC: preparation'],limitations:['照片不能证明工程量'],summary:'SYNTHETIC VISION RESPONSE',confidence:.7,crossValidation:{status:'insufficient-evidence',reason:'SYNTHETIC: not conclusive'},textFacts:'配对原文',model:'mock-vision-model',provider:'mock-only',usage:{total_tokens:100}}});
+      }
       return route.continue();
     }
     if(url.origin!=='https://qa.supabase.test'){state.blocked.push(url.origin);return route.abort();}
@@ -18,9 +23,9 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false}={}
     if(url.pathname==='/auth/v1/user')return route.fulfill({json:user});
     if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
     if(url.pathname==='/auth/v1/token'){state.refreshes++;return route.fulfill({json:session()});}
-    if(url.pathname.startsWith('/storage/v1/object/sign/'))return route.fulfill({json:{signedURL:'/object/signed-test-image'}});
-    if(url.pathname==='/storage/v1/object/signed-test-image'){
-      const object=[...state.objects].find(([path])=>path.endsWith('.png'))?.[1];return route.fulfill({contentType:'image/png',body:object||Buffer.from('')});
+    if(url.pathname.startsWith('/storage/v1/object/sign/'))return route.fulfill({json:{signedURL:'/object/signed-test/'+encodeURIComponent(url.pathname.replace('/storage/v1/object/sign/','/storage/v1/object/'))}});
+    if(url.pathname.startsWith('/storage/v1/object/signed-test/')){
+      const key=decodeURIComponent(url.pathname.slice('/storage/v1/object/signed-test/'.length)),object=state.objects.get(key);return route.fulfill({contentType:'image/png',body:object||Buffer.from('')});
     }
     if(!request.headers().authorization?.startsWith('Bearer '))return route.fulfill({status:401,json:{message:'login required'}});
     if(url.pathname.startsWith('/storage/v1/object/')){
@@ -48,7 +53,7 @@ test('first email login uses correct redirect, remembered session restores and l
 test('expired remembered session refreshes through SDK rather than using stale access token',async({page})=>{
   const state=await sandbox(page),old=session(Math.floor(Date.now()/1000)-300);await page.addInitScript(({old})=>localStorage.setItem('sb-qa-auth-token',JSON.stringify(old)),{old});await page.goto('/');await expect(page.locator('#cloudStatus')).toContainText('已自动登录');expect(state.refreshes).toBeGreaterThan(0);
 });
-test('real multilingual PDF extracts text and JPEG/Flate images, saves private data and restores after reload',async({page})=>{
+test('synthetic multilingual PDF extracts text and JPEG/Flate images, saves private data and restores after reload',async({page})=>{
   const state=await sandbox(page);await login(page);await upload(page);await expect(page.locator('#importPreviewRows')).toContainText('粉磨车间');await expect(page.locator('#importPreviewRows')).toContainText('第 2 页');expect(state.posts).toBe(0);
   await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();expect(state.reports).toHaveLength(2);expect(state.images).toHaveLength(4);expect(state.audits).toHaveLength(1);expect(state.objects.size).toBe(5);
   expect(state.reports.every(r=>r.id&&r.payload.provenance&&r.payload.originalObjectPath)).toBe(true);expect(state.images.every(i=>i.report_id&&i.payload.objectPath&&!i.payload.dataUrl&&!i.payload.signedUrl)).toBe(true);
@@ -73,4 +78,46 @@ test('manual report saves to authenticated cloud and retains construction conten
   const state=await sandbox(page);await login(page);await page.getByRole('link',{name:'日报录入'}).click();
   await page.locator('[name="date"]').fill('2026-10-03');await page.locator('[name="workshop"]').fill('QA Workshop');await page.locator('[name="process"]').fill('QA Activity');await page.locator('[name="constructionContent"]').fill('SYNTHETIC WORK ONLY');await page.getByRole('button',{name:'保存日报'}).click();
   await expect(page.getByText('日报已保存到本机和云端')).toBeVisible();expect(state.reports).toHaveLength(1);expect(state.reports[0].payload.constructionContent).toBe('SYNTHETIC WORK ONLY');await page.reload();await page.getByRole('link',{name:'日报录入'}).click();await expect(page.locator('#historyRows')).toContainText('QA Workshop');
+});
+
+// Opt-in REAL acceptance: private source PDFs stay outside the repo. Cloud calls are sandboxed.
+// KHAYRAT_REAL_PDFS=[{"path":"/absolute/report.pdf","date":"2026-09-30","chinese":67,"local":30}]
+const realReports=JSON.parse(process.env.KHAYRAT_REAL_PDFS||'[]');
+for(const report of realReports)test(`REAL Khayrat ${report.date}: layout, personnel, images, original, review and duplicate import`,async({page})=>{
+  test.setTimeout(120000);const errors=[];page.on('pageerror',e=>errors.push(e.message));const state=await sandbox(page);await login(page);
+  await page.locator('#fileInput').setInputFiles(report.path);await expect(page.locator('#importSummary')).toContainText('12 条记录、11 张图片',{timeout:60000});
+  await expect(page.locator('#importPreviewRows')).toContainText(report.date);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible({timeout:60000});
+  expect(state.reports).toHaveLength(12);expect(state.images).toHaveLength(11);expect(state.objects.size).toBe(12);expect(state.images.every(i=>i.payload.originalObjectPath)).toBe(true);
+  const summary=state.reports.find(r=>r.payload.recordType==='personnel-summary').payload;
+  expect(summary.chineseStaff).toBe(report.chinese);expect(summary.localStaff).toBe(report.local);expect(summary.personnelStatistics.derivedTotal).toBe(report.chinese+report.local);expect(summary.personnelStatistics.issues).toEqual([]);
+  expect(state.reports.every(r=>r.payload.date===report.date&&r.payload.originalObjectPath)).toBe(true);expect(summary.documentLayout.every(p=>p.tokens.length&&p.graphics.length)).toBe(true);
+  const control=state.images.find(i=>i.payload.relatedWorkshop==='中控楼'),batching=state.images.find(i=>i.payload.relatedWorkshop==='水泥配料站');expect(control).toBeTruthy();expect(batching).toBeTruthy();expect(control.payload.sourceExcerpt).not.toBe(batching.payload.sourceExcerpt);
+  expect(state.images.every(i=>i.payload.bbox&&i.payload.association.blockId&&i.report_id&&i.payload.objectPath&&!i.payload.dataUrl)).toBe(true);
+  expect(state.images.every(i=>i.payload.visibleFacts.length===0&&i.payload.provider==='text-only')).toBe(true);
+  await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('#imageGallery img')).toHaveCount(11);await expect.poll(()=>page.locator('#imageGallery img').evaluateAll(imgs=>imgs.every(i=>i.complete&&i.naturalWidth>0))).toBe(true);
+  await page.locator('[data-open-image]').first().click();await expect(page.locator('#imageTextFacts')).not.toContainText('未关联');await expect(page.locator('#imageProvenance')).toContainText('imageBBox');
+  await page.locator('#imageForm [name=caption]').fill('真实日报验收：人工确认关联，未启用外部 AI');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();expect(state.images.filter(i=>i.payload.manualReviewed)).toHaveLength(1);expect(state.images.find(i=>i.payload.manualReviewed).payload.originalAssociation.blockId).toBeTruthy();
+  if(process.env.KHAYRAT_QA_SCREENSHOTS)await page.screenshot({path:`${process.env.KHAYRAT_QA_SCREENSHOTS}/${report.date}-review.png`,fullPage:false});
+  const ids=state.reports.map(r=>r.id);await page.locator('#fileInput').setInputFiles(report.path);await expect(page.locator('#importSummary')).toContainText('12 条重复',{timeout:60000});await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible({timeout:60000});expect(state.reports.map(r=>r.id)).toEqual(ids);expect(state.images).toHaveLength(11);expect(state.images.filter(i=>i.payload.manualReviewed)).toHaveLength(1);
+  await page.reload();await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('#imageGallery img')).toHaveCount(11);expect(state.blocked).toEqual([]);expect(errors).toEqual([]);
+});
+
+test('vision stays disabled without approved configuration and consent; manual image correction persists cloud metadata',async({page})=>{
+  const state=await sandbox(page);await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('#analyzeImages')).toBeDisabled();await page.locator('[data-open-image]').first().click();await expect(page.locator('#analyzeImage')).toBeDisabled();await page.locator('#imageForm [name=caption]').fill('SYNTHETIC REVIEW');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();expect(state.images[0].payload.manualReview.confirmed).toBe(true);expect(state.images[0].payload.confidence).toBe(0);expect(state.images[0].payload.dataUrl).toBeUndefined();await page.reload();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('[data-open-image]').first().click();await expect(page.locator('#imageForm [name=caption]')).toHaveValue('SYNTHETIC REVIEW');
+});
+
+test('MOCK vision consent gates authenticated ID-only request; human correction retains model facts and saves cloud review',async({page})=>{
+  const state=await sandbox(page,{visionEnabled:true});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('[data-open-image]').first().click();await page.locator('#analyzeImage').click();await expect(page.locator('#toast')).toContainText('传输授权');expect(state.visionCalls).toHaveLength(0);await page.locator('#closeImageDialog').click();await page.locator('#visionConsent').check();await page.locator('[data-open-image]').first().click();await page.locator('#analyzeImage').click();await expect(page.locator('#imageVisibleFacts')).toContainText('SYNTHETIC: visible rebar');expect(state.visionCalls).toHaveLength(1);expect(state.visionCalls[0].body).toEqual({imageId:state.images[0].image_id,consent:true});expect(state.visionCalls[0].authorization).toContain('Bearer ');expect(state.images[0].payload.manualReviewed).toBe(false);await page.locator('#imageForm [name=reviewedVisibleFacts]').fill('人工确认：模板');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();expect(state.images[0].payload.visibleFacts).toEqual(['人工确认：模板']);expect(state.images[0].payload.automaticAnalysis.visibleFacts).toEqual(['SYNTHETIC: visible rebar']);expect(state.images[0].payload.manualReview.confirmed).toBe(true);expect(state.images[0].payload.confidence).toBe(.7);
+});
+
+
+test('MOCK free vision displays Groq consent, paces batch and stop prevents second transmission',async({page})=>{
+  const state=await sandbox(page,{visionEnabled:true,freeVision:true});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();
+  await expect(page.locator('#visionConsentText')).toContainText('Groq');await expect(page.locator('#visionStatus')).toContainText('Free Plan');await page.locator('#visionConsent').check();await page.locator('#analyzeImages').click();
+  await expect(page.locator('#visionStatus')).toContainText('等待免费服务调用间隔');expect(state.visionCalls).toHaveLength(1);expect(state.visionCalls[0].body.provider).toBe('groq');
+  await page.locator('#stopVision').click();await expect(page.locator('#analyzeImages')).toBeEnabled();expect(state.visionCalls).toHaveLength(1);expect(state.images.filter(i=>i.payload.visionEnabled)).toHaveLength(1);await expect(page.locator('#stopVision')).toBeDisabled();expect(state.blocked).toEqual([]);
+});
+test('MOCK free quota error stops batch and retains first result without fallback or retry',async({page})=>{
+  const state=await sandbox(page,{visionEnabled:true,freeVision:true,visionInterval:0,visionQuotaAfter:1});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('#visionConsent').check();await page.locator('#analyzeImages').click();
+  await expect(page.locator('#toast')).toContainText('不会自动切换付费');await expect(page.locator('#analyzeImages')).toBeEnabled();expect(state.visionCalls).toHaveLength(2);expect(state.visionCalls.every(c=>c.body.provider==='groq')).toBe(true);expect(state.images.filter(i=>i.payload.visionEnabled)).toHaveLength(1);expect(state.blocked).toEqual([]);
 });
