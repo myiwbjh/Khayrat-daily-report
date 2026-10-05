@@ -17,10 +17,17 @@ export class SupabaseCloudRepository{
     if(rows.some(r=>!r.image_id))throw new Error('图片缺少稳定 ID');
     if(rows.length)await this.request('/rest/v1/image_evidence?on_conflict=image_id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify(rows)});
   }
+  async saveProjectData(type,rows,{importId=crypto.randomUUID(),sourceFile=''}={}){
+    const tables={progress:'progress_measurements',shipments:'equipment_shipments',mappings:'crosswalk_mappings'},table=tables[type];if(!table)throw new Error('未知项目数据类型');
+    const payload=rows.map(row=>({id:row.id,project_id:'khayrat',source_file:row.sourceFile||sourceFile,payload:row,updated_at:new Date().toISOString()}));
+    if(payload.length)await this.request(`/rest/v1/${table}?on_conflict=id`,{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify(payload)});
+    await this.request('/rest/v1/import_audits?on_conflict=import_id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({import_id:importId,files:[sourceFile],result:{type,records:payload.length}})});
+  }
   async loadProject(){
     const read=async table=>{const rows=[];for(let offset=0;;offset+=500){const response=await this.request(`/rest/v1/${table}?project_id=eq.khayrat&select=*&order=${table==='daily_reports'?'id':'image_id'}&offset=${offset}&limit=500`);const page=await response.json();if(!Array.isArray(page))throw new Error('云端数据格式错误');rows.push(...page);if(page.length<500)break;}return rows;};
-    const [reports,images]=await Promise.all([read('daily_reports'),read('image_evidence')]);
-    return {records:reports.map(r=>({...r.payload,id:r.id})),images:images.map(i=>({...i.payload,imageId:i.image_id}))};
+    const readProject=async table=>{try{return await read(table);}catch(error){if(/404|42P01/.test(error.message))return [];throw error;}};
+    const [reports,images,progress,shipments,mappings]=await Promise.all([read('daily_reports'),read('image_evidence'),readProject('progress_measurements'),readProject('equipment_shipments'),readProject('crosswalk_mappings')]);
+    return {records:reports.map(r=>({...r.payload,id:r.id})),images:images.map(i=>({...i.payload,imageId:i.image_id})),progress:progress.map(r=>({...r.payload,id:r.id})),shipments:shipments.map(r=>({...r.payload,id:r.id})),mappings:mappings.map(r=>({...r.payload,id:r.id}))};
   }
 
 }

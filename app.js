@@ -11,6 +11,7 @@ import { waitForVisionSlot } from './src/vision-pacing.js';
 import { ProjectDatabase } from './src/database.js';
 import { loadCloudConfig, SupabaseCloudRepository } from './src/cloud.js';
 import { OCRProvider } from './src/pdfjs-adapter.js';
+import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analyzeProgress,crossAnalyze,PROGRESS_HEADERS,SHIPMENT_HEADERS,CROSSWALK_HEADERS} from './src/project-data.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -18,6 +19,7 @@ const store = new ReportStore();
 const evidenceStore = new EvidenceStore();
 const database = new ProjectDatabase();
 let records = store.all();
+let progressRecords=[],shipmentRecords=[],crosswalkMappings=[];
 let period = 'day';
 let demoMode = false;
 let pendingImport = null;
@@ -33,7 +35,7 @@ const adapters = {
   // Extension point for a future Google Drive transport; downloaded files reuse these adapters.
 };
 async function syncDatabase(){try{await database.replace(store.all(),evidenceStore.all());}catch(error){console.warn('IndexedDB sync failed',error);}}
-try{const snapshot=await database.load();if(snapshot.records.length||snapshot.images.length){store.write(snapshot.records);evidenceStore.setCache(snapshot.images);records=snapshot.records;}else await syncDatabase();}catch(error){console.warn('IndexedDB unavailable; using localStorage fallback',error);}
+try{const snapshot=await database.load();progressRecords=snapshot.progress||[];shipmentRecords=snapshot.shipments||[];crosswalkMappings=snapshot.mappings||[];if(snapshot.records.length||snapshot.images.length){store.write(snapshot.records);evidenceStore.setCache(snapshot.images);records=snapshot.records;}else await syncDatabase();}catch(error){console.warn('IndexedDB unavailable; using localStorage fallback',error);}
 function updateCloudStatus(session){
   if(cloud)cloud.token=session?.access_token||'';
   $('#cloudStatus').textContent=!cloud?.configured?'本机模式 · 未配置云数据库':session?'已自动登录 · 云端连接':'云端已配置 · 点击登录';
@@ -41,7 +43,7 @@ function updateCloudStatus(session){
 }
 async function hydrateCloud(){
   if(!cloud?.token)return;
-  const snapshot=await cloud.loadProject();store.mergeRemote(snapshot.records);evidenceStore.merge(snapshot.images);records=store.all();
+  const snapshot=await cloud.loadProject();store.mergeRemote(snapshot.records);evidenceStore.merge(snapshot.images);records=store.all();progressRecords=snapshot.progress||progressRecords;shipmentRecords=snapshot.shipments||shipmentRecords;crosswalkMappings=snapshot.mappings||crosswalkMappings;
   await hydrateImages();await syncDatabase();populateFilters();render();renderHistory();renderImages();
 }
 async function hydrateImages(){for(const image of evidenceStore.all())if(image.objectPath)try{image.signedUrl=await cloud.signedUrl(image.objectPath);}catch{image.signedUrl='';}}
@@ -140,6 +142,7 @@ function renderChart(points) {
 }
 
 function render() {
+  renderProjectData();
   const filtered = filterRecords(records, { date: $('#dateFilter').value, workshop: $('#workshopFilter').value, process: $('#processFilter').value });
   $('#recordCount').textContent = `${filtered.length} 条原始记录`;
   $('#emptyState').hidden = records.length > 0; $('#dashboard').hidden = records.length === 0; $('#demoBanner').hidden = !demoMode;
@@ -148,23 +151,39 @@ function render() {
   if (!records.length) return;
   const a = analyzeRecords(filtered, period);
   const photo=summarizeImageEvidence(evidenceStore.all(),{date:$('#dateFilter').value,workshop:$('#workshopFilter').value,process:$('#processFilter').value});
-  $('#plannedKpi').textContent = pct(a.kpis.planned); $('#actualKpi').textContent = pct(a.kpis.actual);
+  const projectProgress=analyzeProgress(progressRecords),hasProjectProgress=progressRecords.length>0;
+  $('#plannedKpi').textContent = pct(hasProjectProgress?projectProgress.planned:a.kpis.planned); $('#actualKpi').textContent = pct(hasProjectProgress?projectProgress.actual:a.kpis.actual);
   $('#plannedNote').textContent = a.latestDate ? `截至 ${a.latestDate}` : '等待数据';
-  $('#varianceNote').textContent = a.kpis.variance == null ? '缺少计划或实际值' : `计划偏差 ${delta(a.kpis.variance)}`;
+  const projectVariance=hasProjectProgress?projectProgress.variance:a.kpis.variance;$('#varianceNote').textContent = projectVariance == null ? '缺少计划或实际值' : `计划偏差 ${delta(projectVariance)}${hasProjectProgress?' · 来源：进度/WBS':''}`;
   $('#concreteKpi').textContent = a.quantityGroups.length === 0 ? '—' : a.quantityGroups.length === 1 ? `${a.quantityGroups[0].daily?.toFixed(2) ?? '—'} / ${Number.isFinite(a.quantityGroups[0].cumulative)?a.quantityGroups[0].cumulative.toFixed(2):'—'}` : `${a.quantityGroups.length} 组`;
   $('#concreteNote').textContent = a.quantityGroups.length === 1 ? `${a.quantityGroups[0].workshop} · ${a.quantityGroups[0].unit}` : a.quantityGroups.length > 1 ? '按车间、工序和单位分别统计' : '暂无工程量数据';
-  $('#peopleKpi').textContent = a.kpis.totalStaff ?? '—'; $('#peopleNote').textContent = `中方 ${a.kpis.chineseStaff ?? '—'} · 属地 ${a.kpis.localStaff ?? '—'} · 较上期 ${a.kpis.staffDelta == null ? '—' : (a.kpis.staffDelta >= 0 ? '+' : '') + a.kpis.staffDelta}`;
+  $('#peopleKpi').textContent = a.kpis.totalStaff ?? '—'; $('#peopleNote').textContent = `中方 ${a.kpis.chineseStaff ?? '—'} · 属地 ${a.kpis.localStaff ?? '—'} · 较上期 ${a.kpis.staffDelta == null ? '—' : (a.kpis.staffDelta >= 0 ? '+' : '') + a.kpis.staffDelta}${a.kpis.staffNeedsReview?' · ⚠ 合计不一致，待复核':''}`;
   $('#stoppageKpi').textContent = a.stoppages.length;
   $('#photoKpi').textContent = `${photo.analyzed}/${photo.total}`;$('#photoNote').textContent=`已识别 / 有效照片 · ${photo.linked} 张已关联 · ${photo.review} 张待复核`;
   $('#photoEvidenceSummary').innerHTML=photo.total?`<div class="photo-summary"><b>${photo.analyzed} 张已识别</b><span>${photo.pending} 张待识别</span><span>${photo.linked} 张已关联日报文字</span><span>${photo.conflicts} 张图文需复核</span></div><div class="scene-summary">${photo.sceneCounts.map(([scene,count])=>`<span class="tag">${escapeHTML(scene)} ${count}</span>`).join('')||'<span>尚无已识别场景</span>'}</div>${photo.conflictItems.length?`<p class="negative">${photo.conflicts} 张照片与对应日报文字存在潜在矛盾，请到“图片证据”复核。</p>`:''}`:'<div class="mini-empty">尚无有效现场照片</div>';
-  $('#trendChart').innerHTML = renderChart(a.timeline); $('#chartCaption').textContent = `${period === 'day' ? '每日' : period === 'week' ? '每周' : '每月'}聚合 · ${a.timeline.length} 个数据点`;
-  $('#workforceChart').innerHTML = a.workforce.length ? a.workforce.slice(-8).map(p => `<div class="staff-row"><span>${p.date.slice(5)}</span><div><i class="cn" style="width:${Math.min(100,p.chinese/Math.max(1,a.maxStaff)*100)}%"></i><i class="local" style="width:${Math.min(100,p.local/Math.max(1,a.maxStaff)*100)}%"></i></div><b>${p.chinese!=null&&p.local!=null?p.chinese+p.local:'—'}</b></div>`).join('') + '<div class="staff-legend"><i></i>中方人员 <i></i>属地人员</div>' : '<div class="mini-empty">暂无人员数据</div>';
+  const curve=hasProjectProgress?projectProgress.timeline.map(p=>({date:p.month,planned:p.planned,actual:p.actual})):a.timeline;$('#trendChart').innerHTML = renderChart(curve); $('#chartCaption').textContent = hasProjectProgress?`独立 WBS 进度数据 · ${curve.length} 个数据点`:`${period === 'day' ? '每日' : period === 'week' ? '每周' : '每月'}聚合 · 日报临时数据`;
+  $('#workforceChart').innerHTML = a.workforce.length ? a.workforce.slice(-8).map(p => {const scale=Math.min(100,(p.total||0)/Math.max(1,a.maxStaff)*100),componentTotal=Math.max(1,p.components||p.total||1),cn=(p.chinese||0)/componentTotal*100,local=(p.local||0)/componentTotal*100;return `<div class="staff-row"><span>${p.date.slice(5)}</span><div class="staff-total" style="width:${scale}%"><i class="cn" style="width:${cn}%"></i><i class="local" style="width:${local}%"></i></div><b>${p.total??'—'}${p.needsReview?' ⚠':''}</b></div>`;}).join('') + '<div class="staff-legend"><i></i>中方人员 <i></i>属地人员；总条长度＝项目总人数</div>' : '<div class="mini-empty">暂无人员数据</div>';
   $('#workshopRows').innerHTML = a.workshops.length ? a.workshops.map(w => {const photos=evidenceStore.all().filter(i=>!i.ignored&&i.relatedWorkshop===w.workshop&&i.relatedProcess===w.process).length;return `<tr><td><b>${escapeHTML(w.workshop)}</b><small>${escapeHTML(w.process || '未填写工序')} ${photos?`· 📷 ${photos}`:''}</small></td><td>${pct(w.planned)}</td><td><span class="bar"><i style="width:${w.actual || 0}%"></i></span>${pct(w.actual)}</td><td class="${(w.variance||0)<0?'negative':'positive'}">${delta(w.variance)}</td><td>${delta(w.change)}</td><td><span class="tag ${statusClass(w.status)}">${escapeHTML(w.status || '未标注')}</span></td></tr>`;}).join('') : '<tr><td colspan="6" class="mini-empty">筛选范围内无车间数据</td></tr>';
   $('#equipmentList').innerHTML = a.equipment.length ? a.equipment.map(e => {const photos=evidenceStore.all().filter(i=>!i.ignored&&i.relatedWorkshop===e.workshop&&/设备到货|安装准备/.test(i.scene||'')).length;return `<div><span class="equipment-icon">◇</span><span><b>${escapeHTML(e.name)}</b><small>${escapeHTML(e.workshop)} · ${escapeHTML(e.note || '无补充记录')} ${photos?`· 📷 ${photos}`:''}</small></span><em class="tag ${statusClass(e.status)}">${escapeHTML(e.status)}</em></div>`;}).join('') : '<div class="mini-empty">暂无设备状态记录</div>';
   $('#riskCount').textContent = a.risks.length; $('#riskList').innerHTML = a.risks.length ? a.risks.map(r => {const photos=evidenceStore.all().filter(i=>!i.ignored&&i.relatedDate===r.date&&r.detail.includes(i.relatedWorkshop)).length;return `<div><span>!</span><p><b>${escapeHTML(r.title)}</b><small>${escapeHTML(r.detail)} ${photos?`· 📷 ${photos} 张关联证据`:''}</small><em>${escapeHTML(r.date)} · ${escapeHTML(r.reportName)}</em></p></div>`;}).join('') : '<div class="mini-empty success">当前筛选范围内未识别到风险</div>';
   $('#evidenceList').innerHTML = a.stoppages.length ? a.stoppages.map(s => `<details><summary><span><b>${escapeHTML(s.workshop)} · ${escapeHTML(s.process)}</b><small>${s.startDate} 至 ${s.endDate} · 连续 ${s.days} 个有效日报日</small></span><strong>查看 ${s.evidence.length} 条日报证据</strong></summary>${s.evidence.map(e => {const photos=imagesFor(e);return `<blockquote><b>${escapeHTML(e.reportName)} · ${e.date}</b><p>${escapeHTML(e.rawRecord || '状态：' + e.status)}</p>${photos.length?`<button class="row-action evidence-jump" data-image="${photos[0].imageId}">📷 ${photos.length} 张图片证据</button>`:''}</blockquote>`;}).join('')}</details>`).join('') : '<div class="mini-empty success">未发现满足规则的连续停工</div>';
   $$('.evidence-jump').forEach(button=>button.onclick=()=>openImage(button.dataset.image));
 }
+
+function renderProjectData(){
+  $('#progressCount').textContent=`${progressRecords.length} 条`;$('#shipmentCount').textContent=`${shipmentRecords.length} 条`;$('#mappingCount').textContent=`${crosswalkMappings.length} 条`;
+  const findings=crossAnalyze({reports:records,progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings});
+  $('#crossAnalysis').innerHTML=findings.length?`<h3>交叉判断</h3>${findings.map(f=>`<article class="cross-finding"><span class="evidence-label">AI 推断 · ${escapeHTML(f.severity)}</span><h3>${escapeHTML(f.title)}</h3><p><b>原始事实：</b>${f.facts.map(escapeHTML).join('；')}</p><p><b>系统计算：</b>${escapeHTML(f.basis)}</p><p><b>待人工确认：</b>${escapeHTML(f.confirmation)}</p></article>`).join('')}`:'<p class="mini-empty">当前没有满足交叉预警规则的组合；原始事实、系统计算、AI 推断与待确认项会分开展示。</p>';
+}
+
+async function rowsFromFile(file){const ext=file.name.split('.').pop().toLowerCase();if(ext==='csv')return parseCSV(await file.text());if(ext==='xlsx')return parseXLSX(await file.arrayBuffer());throw new Error('仅支持 CSV / XLSX');}
+async function importProjectData(type,file){
+  if(!file)return;const normalizers={progress:normalizeProgressRows,shipments:normalizeShipmentRows,mappings:normalizeCrosswalkRows},current={progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings};
+  try{if(cloud?.configured&&!cloud.token)throw new Error('请先登录，再导入需要保存到云端的项目数据');const rows=normalizers[type](await rowsFromFile(file),file.name);if(!rows.length)throw new Error('没有识别到有效数据，请核对模板列名');const merged=[...new Map([...current[type],...rows].map(row=>[row.id,row])).values()];if(cloud?.configured)await cloud.saveProjectData(type,rows,{sourceFile:file.name});await database.replaceProjectData(type,merged);if(type==='progress')progressRecords=merged;else if(type==='shipments')shipmentRecords=merged;else crosswalkMappings=merged;render();toast(`已导入 ${rows.length} 条${type==='progress'?'进度/WBS':type==='shipments'?'设备物流':'映射'}数据`);}catch(error){toast(error.message,true);}finally{$(`#${type==='progress'?'progress':type==='shipments'?'shipment':'mapping'}Input`).value='';}
+}
+$('#progressImportButton').onclick=()=>$('#progressInput').click();$('#shipmentImportButton').onclick=()=>$('#shipmentInput').click();$('#mappingImportButton').onclick=()=>$('#mappingInput').click();
+$('#progressInput').onchange=e=>importProjectData('progress',e.target.files[0]);$('#shipmentInput').onchange=e=>importProjectData('shipments',e.target.files[0]);$('#mappingInput').onchange=e=>importProjectData('mappings',e.target.files[0]);
+$$('[data-template]').forEach(button=>button.onclick=()=>{const headers={progress:PROGRESS_HEADERS,shipments:SHIPMENT_HEADERS,mappings:CROSSWALK_HEADERS}[button.dataset.template],a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+headers.join(',')+'\n'],{type:'text/csv;charset=utf-8'}));a.download=`khayrat-${button.dataset.template}-template.csv`;a.click();URL.revokeObjectURL(a.href);});
 
 async function importFiles(files) {
   files=[...files].filter(file=>/\.(csv|xlsx|pdf)$/i.test(file.name));const messages = [], imported = [], extractedImages=[];
@@ -230,6 +249,13 @@ function renderImages() {
   $('#imageGallery').innerHTML=filtered.length?filtered.map(image=>{const record=store.all().find(r=>r.id===image.relatedRecordId)||store.all().find(r=>businessKey(r)===image.relatedRecordKey),conflicts=record?findEvidenceConflicts(record,[image]):[];return `<article class="image-card ${image.ignored?'ignored':''}" data-open-image="${image.imageId}"><div class="thumb"><img src="${image.signedUrl||image.dataUrl||''}" alt="${escapeHTML(image.caption||'PDF现场图片')}" loading="lazy">${image.critical?'<b>关键证据</b>':''}</div><div><span class="evidence-label">直接证据</span><h3>${escapeHTML(image.visionEnabled||image.manualReviewed?image.scene||'无法判断':'待视觉识别')}</h3><p>${escapeHTML(image.relatedWorkshop||'未关联车间')} · ${escapeHTML(image.relatedProcess||'未关联工序')}</p><small>${escapeHTML(image.sourceFile)} · 第 ${image.pageNumber} 页 · 图 ${image.imageIndex}</small><div class="tag-row">${(image.tags||[]).map(t=>`<em>${escapeHTML(t)}</em>`).join('')}</div>${conflicts.length?`<strong class="conflict">待人工复核：${escapeHTML(conflicts[0].reason)}</strong>`:''}</div></article>`;}).join(''):'<div class="empty-state compact"><h2>暂无图片证据</h2><p>导入包含 JPEG/JPX 嵌入图片的 PDF 日报后，图片会显示在这里。</p></div>';
   $$('[data-open-image]').forEach(card=>card.onclick=()=>openImage(card.dataset.openImage));
 }
+$('#cleanLegacyLogos').onclick=async()=>{
+  const all=evidenceStore.all(),groups=new Map();for(const image of all){const b=image.bbox||{},key=`${image.sourceFile}|${Math.round(b.x||0)}|${Math.round(b.y||0)}|${Math.round(b.width||0)}|${Math.round(b.height||0)}`,items=groups.get(key)||[];items.push(image);groups.set(key,items);}
+  const candidates=all.filter(image=>image.decorativeReason||[...groups.values()].some(items=>items.length>=2&&items.some(x=>x.imageId===image.imageId)&&new Set(items.map(x=>x.pageNumber)).size>=2));
+  if(!candidates.length)return toast('未发现可安全自动标记的重复页眉/页脚图片');
+  if(!confirm(`发现 ${candidates.length} 张带装饰标记或跨页重复同位置的旧版图片。仅标记为忽略，不删除图片和原始 PDF。是否继续？`))return;
+  try{for(const image of candidates){image.ignored=true;image.ignoreReason='legacy-decorative-review';image.reviewedAt=new Date().toISOString();}evidenceStore.setCache(all);await syncDatabase();if(cloud?.token)await cloud.saveEvidence(candidates);renderImages();render();toast(`已安全标记 ${candidates.length} 张；原始 PDF 未修改`);}catch(error){toast(`本机标记已保留，云端同步失败：${error.message}`,true);}
+};
 function refreshVisionStatus(){
   const config=cloud?.config;
   $('#visionStatus').textContent=config?.visionEnabled?`${config.visionProvider||'OpenAI'} 视觉服务已配置；勾选授权后可分析。${config.visionCostNotice||''}${config.visionMinIntervalMs?' 每张间隔约一分钟，可停止后续分析。':''}`:'视觉服务尚未启用：等待负责人确认外部图片传输和服务费用。';
