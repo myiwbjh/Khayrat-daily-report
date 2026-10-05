@@ -24,3 +24,7 @@
 /* Checkboxes remain compact inside the shared filter controls. */
 .filters input[type="checkbox"] { width:16px; height:16px; padding:0; }
 #imageProvenance { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; }
+
+#passwordSetupDialog{border:1px solid #cbd5e1;border-radius:14px;padding:24px;width:min(720px,90vw);max-height:90vh;overflow:auto}
+#passwordSetupForm input{display:block;padding:12px;width:100%;margin:8px 0;border:1px solid #cbd5e1;border-radius:6px;font:inherit}
+#emailLoginFallback{margin:16px 0}

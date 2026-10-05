@@ -29,6 +29,7 @@ export class AuthSession {
     await this.current();return this.session;
   }
   async current(){
+    if(this.verifying)return null;
     const {data,error}=await this.client.auth.getSession();
     if(error){this.publish(null);throw error;}
     if(!data.session){this.publish(null);return null;}
@@ -40,20 +41,44 @@ export class AuthSession {
     const {error}=await this.client.auth.signInWithOtp({email:email.trim(),options:{emailRedirectTo:redirectTo,shouldCreateUser:false}});
     if(error)throw error;
   }
-  async verifyEmailLink(value,email){
-    const params=emailLinkParams(value,this.supabaseUrl),expected=String(email||'').trim().toLowerCase();
-    if(!expected.includes('@'))throw new Error('请填写接收登录邮件的邮箱。');
+  async verifiedLogin(login,expected,{signal}={}){
+    if(this.verifying)throw new Error('上次登录仍在处理中，请稍后重试。');
     this.verifying=true;
+    const cancelled=()=>{if(signal?.aborted)throw new Error('cancelled');};
     try{
-      const {data,error}=await this.client.auth.verifyOtp(params);
-      if(error||!data?.session)throw new Error('verification failed');
+      cancelled();
+      const {data,error}=await login();
+      cancelled();
+      if(error||!data?.session)throw new Error('login failed');
       const verified=await this.client.auth.getUser();
+      cancelled();
       if(verified.error||!verified.data?.user?.email_confirmed_at||verified.data.user.email?.toLowerCase()!==expected)throw new Error('identity mismatch');
       this.publish({...data.session,user:verified.data.user});return this.session;
     }catch{
-      try{await this.client.auth.signOut({scope:'local'});}catch{/* Always clear this app's authorization state. */}
-      this.publish(null);throw new Error('登录链接已使用、已过期或邮箱不匹配。请重新发送，并验证尚未打开的新链接。');
+      try{await this.client.auth.signOut({scope:'local'});}catch{/* Clear application authorization even if cleanup fails. */}
+      this.publish(null);throw new Error(signal?.aborted?'登录已取消。':'邮箱或密码不正确，或登录暂不可用。请确认已为此邮箱设置密码。');
     }finally{this.verifying=false;}
+  }
+  async signInWithPassword(email,password,options={}){
+    const expected=String(email||'').trim().toLowerCase();
+    if(!expected.includes('@')||typeof password!=='string'||!password)throw new Error('请填写邮箱和密码。');
+    return this.verifiedLogin(()=>this.client.auth.signInWithPassword({email:expected,password}),expected,options);
+  }
+  async setPassword(password){
+    if(typeof password!=='string'||password.length<12)throw new Error('请使用至少 12 位密码。');
+    const session=await this.current();
+    if(!session?.user?.email_confirmed_at)throw new Error('请先登录已验证的邮箱。');
+    const {error}=await this.client.auth.updateUser({password});
+    if(error)throw new Error('密码未能设置，请稍后重试或检查密码要求。');
+  }
+  async verifyEmailLink(value,email,options={}){
+    const params=emailLinkParams(value,this.supabaseUrl),expected=String(email||'').trim().toLowerCase();
+    if(!expected.includes('@'))throw new Error('请填写接收登录邮件的邮箱。');
+    try{
+      return await this.verifiedLogin(()=>this.client.auth.verifyOtp(params),expected,options);
+    }catch{
+      throw new Error(options.signal?.aborted?'登录已取消。':'登录链接已使用、已过期或邮箱不匹配。请重新发送，并验证尚未打开的新链接。');
+    }
   }
   async signOut(){const {error}=await this.client.auth.signOut({scope:'local'});if(error)throw error;this.publish(null);}
   dispose(){this.subscription?.unsubscribe();this.listeners.clear();}

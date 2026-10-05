@@ -5,7 +5,7 @@ const fixture=resolve('test/fixtures/synthetic-reports.pdf');
 const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'authenticated',email:'qa@example.test',email_confirmed_at:'2026-10-04T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}};
 function token(exp=Math.floor(Date.now()/1000)+3600){return [Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url'),Buffer.from(JSON.stringify({...user,sub:user.id,exp,iat:Math.floor(Date.now()/1000)})).toString('base64url'),'synthetic-not-a-real-signature'].join('.');}
 function session(exp){return {access_token:token(exp),refresh_token:'synthetic-refresh-token',expires_in:3600,expires_at:exp||Math.floor(Date.now()/1000)+3600,token_type:'bearer',user};}
-async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity,failVerify=false}={}){
+async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity,failVerify=false,holdPassword=false}={}){
   const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,verifications:[],refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[]};
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());
@@ -23,7 +23,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
     if(url.pathname==='/auth/v1/verify'){state.verifications.push({body:request.postDataJSON(),method:request.method(),url:request.url()});return failVerify?route.fulfill({status:403,json:{error_code:'otp_expired',msg:'SYNTHETIC private upstream token=do-not-display'}}):route.fulfill({json:session()});}
     if(url.pathname==='/auth/v1/user')return route.fulfill({json:user});
     if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
-    if(url.pathname==='/auth/v1/token'){state.refreshes++;return route.fulfill({json:session()});}
+    if(url.pathname==='/auth/v1/token'){if(url.searchParams.get('grant_type')==='password'){state.passwordLogins=(state.passwordLogins||0)+1;if(holdPassword)await new Promise(resolve=>{state.releaseLogin=resolve;});if(failVerify)return route.fulfill({status:400,json:{error:'invalid_grant',error_description:'SYNTHETIC private password'}});return route.fulfill({json:session()});}state.refreshes++;return route.fulfill({json:session()});}
     if(url.pathname.startsWith('/storage/v1/object/sign/'))return route.fulfill({json:{signedURL:'/object/signed-test/'+encodeURIComponent(url.pathname.replace('/storage/v1/object/sign/','/storage/v1/object/'))}});
     if(url.pathname.startsWith('/storage/v1/object/signed-test/')){
       const key=decodeURIComponent(url.pathname.slice('/storage/v1/object/signed-test/'.length)),object=state.objects.get(key);return route.fulfill({contentType:'image/png',body:object||Buffer.from('')});
@@ -48,7 +48,7 @@ async function login(page){const s=session();await page.goto(`/#access_token=${s
 async function upload(page){await page.locator('#fileInput').setInputFiles(fixture);await expect(page.locator('#importSummary')).toContainText('2 条记录、4 张图片',{timeout:25000});}
 
 test('first email login uses correct redirect, remembered session restores and logout is explicit',async({page})=>{
-  const state=await sandbox(page);await page.goto('/');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#loginEmail').fill(user.email);await page.locator('#sendLogin').click();await expect(page.locator('#loginError')).toContainText('邮件已发送');expect(state.otp.body.create_user).toBe(false);expect(state.otp.redirect).toBe('http://127.0.0.1:4173/');
+  const state=await sandbox(page);await page.goto('/');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#emailLoginFallback summary').click();await page.locator('#loginEmail').fill(user.email);await page.locator('#sendLogin').click();await expect(page.locator('#loginError')).toContainText('邮件已发送');expect(state.otp.body.create_user).toBe(false);expect(state.otp.redirect).toBe('http://127.0.0.1:4173/');
   await login(page);await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');await page.locator('#signOutButton').click();await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.reload();await expect(page.locator('#cloudStatus')).toContainText('点击登录');expect(state.blocked).toEqual([]);
 });
 test('expired remembered session refreshes through SDK rather than using stale access token',async({page})=>{
@@ -125,7 +125,7 @@ test('MOCK free quota error stops batch and retains first result without fallbac
 
 const freshEmailLink='https://qa.supabase.test/auth/v1/verify?token='+ 'a'.repeat(64)+'&type=magiclink&redirect_to=https://other.test/';
 test('current-page email verification restores after reload without navigating to mail redirect',async({page})=>{
-  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();
+  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#emailLoginFallback summary').click();
   await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#verifyLogin').click();
   await expect(page.locator('#loginDialog')).not.toBeVisible();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');
   expect(state.verifications).toHaveLength(1);expect(state.verifications[0].body).toEqual({token_hash:'a'.repeat(64),type:'email',gotrue_meta_security:{}});expect(state.verifications[0].method).toBe('POST');
@@ -134,11 +134,39 @@ test('current-page email verification restores after reload without navigating t
   await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');
 });
 test('expired mail link keeps app logged out and hides secret upstream error',async({page})=>{
-  const state=await sandbox(page,{failVerify:true});await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#verifyLogin').click();
+  const state=await sandbox(page,{failVerify:true});await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#emailLoginFallback summary').click();await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#verifyLogin').click();
   await expect(page.locator('#verifyLoginError')).toContainText('已使用');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await expect(page.locator('#loginLink')).toHaveValue('');
   expect(await page.locator('#verifyLoginError').innerText()).not.toContain('private upstream');expect(state.verifications).toHaveLength(1);expect(state.posts).toBe(0);
 });
 test('foreign mail issuer is rejected and cancellation clears the input',async({page})=>{
-  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink.replace('qa.supabase.test','other.supabase.test'));await page.locator('#verifyLogin').click();
+  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();await page.locator('#emailLoginFallback summary').click();await page.locator('#verifyLoginEmail').fill(user.email);await page.locator('#loginLink').fill(freshEmailLink.replace('qa.supabase.test','other.supabase.test'));await page.locator('#verifyLogin').click();
   await expect(page.locator('#verifyLoginError')).toContainText('本项目');expect(state.verifications).toHaveLength(0);await page.locator('#loginLink').fill(freshEmailLink);await page.locator('#cancelLogin').click();await expect(page.locator('#loginLink')).toHaveValue('');
+});
+
+
+test('password login uses the current browser, restores on refresh and never sends an OTP',async({page})=>{
+  const state=await sandbox(page);await page.goto('/');await page.locator('#cloudStatus').click();
+  await expect(page.locator('#passwordLoginForm')).toBeVisible();await expect(page.locator('#loginEmail')).not.toBeVisible();
+  await page.locator('#passwordEmail').fill(user.email);await page.locator('#loginPassword').fill('synthetic-password-only');await page.locator('#passwordLogin').click();
+  await expect(page.locator('#cloudStatus')).toContainText('已自动登录');await expect(page.locator('#loginPassword')).toHaveValue('');expect(state.passwordLogins).toBe(1);expect(state.otp).toBeNull();
+  await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');
+});
+test('failed password login and Escape leave no authenticated session or input',async({page})=>{
+  const state=await sandbox(page,{failVerify:true});await page.goto('/');await page.locator('#cloudStatus').click();
+  await page.locator('#passwordEmail').fill(user.email);await page.locator('#loginPassword').fill('synthetic-password-only');await page.locator('#passwordLogin').click();
+  await expect(page.locator('#passwordLoginError')).toContainText('邮箱或密码');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await expect(page.locator('#loginPassword')).toHaveValue('');
+  await page.locator('#loginPassword').fill('synthetic-password-only');await page.locator('#loginPassword').press('Escape');await expect(page.locator('#loginDialog')).not.toBeVisible();await expect(page.locator('#loginPassword')).toHaveValue('');
+  await page.reload();await expect(page.locator('#cloudStatus')).toContainText('点击登录');expect(state.posts).toBe(0);
+});
+
+test('pending password success after cancellation never logs in on cancel or Escape',async({page})=>{
+  for(const action of ['cancel','escape']){
+    const state=await sandbox(page,{holdPassword:true});await page.goto('/');await page.locator('#cloudStatus').click();
+    await page.locator('#passwordEmail').fill(user.email);await page.locator('#loginPassword').fill('synthetic-password-only');await page.locator('#passwordLogin').click();
+    await expect.poll(()=>state.passwordLogins||0).toBe(1);
+    if(action==='cancel')await page.locator('#cancelLogin').click();else await page.locator('#cancelLogin').press('Escape');
+    state.releaseLogin();await expect(page.locator('#passwordLogin')).toBeEnabled();await expect(page.locator('#cloudStatus')).toContainText('点击登录');await expect(page.locator('#loginDialog')).not.toBeVisible();
+    await expect(page.locator('#loginPassword')).toHaveValue('');await page.reload();await expect(page.locator('#cloudStatus')).toContainText('点击登录');
+    await page.unrouteAll({behavior:'wait'});
+  }
 });
