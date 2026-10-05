@@ -23,6 +23,7 @@ let demoMode = false;
 let pendingImport = null;
 let cloud = null;
 let auth=null;
+let loginController=null;
 let visionBusy=false;
 let visionController=null,lastVisionCallAt=0;
 const adapters = {
@@ -36,7 +37,7 @@ try{const snapshot=await database.load();if(snapshot.records.length||snapshot.im
 function updateCloudStatus(session){
   if(cloud)cloud.token=session?.access_token||'';
   $('#cloudStatus').textContent=!cloud?.configured?'本机模式 · 未配置云数据库':session?'已自动登录 · 云端连接':'云端已配置 · 点击登录';
-  $('#signOutButton').hidden=!session;refreshVisionStatus();
+  $('#signOutButton').hidden=!session;$('#setPasswordButton').hidden=!session;refreshVisionStatus();
 }
 async function hydrateCloud(){
   if(!cloud?.token)return;
@@ -56,19 +57,45 @@ try{
 $('#cloudStatus').onclick=async()=>{
   if(!cloud?.configured)return toast('部署环境尚未配置 Supabase',true);
   if(cloud.token){try{await hydrateCloud();toast('云端数据已读取');}catch(error){toast(error.message,true);}return;}
-  $('#loginError').textContent='';$('#verifyLoginError').textContent='';$('#loginLink').value='';$('#loginDialog').showModal();
+  $('#loginError').textContent='';$('#verifyLoginError').textContent='';$('#passwordLoginError').textContent='';clearLoginSecrets();$('#loginDialog').showModal();
 };
 $('#loginForm').onsubmit=async event=>{event.preventDefault();const button=$('#sendLogin');button.disabled=true;try{await cloud.requestMagicLink($('#loginEmail').value,location.origin+location.pathname);$('#verifyLoginEmail').value=$('#loginEmail').value;$('#loginError').textContent='邮件已发送。请在需要登录的同一浏览器打开链接，或复制尚未打开的链接，在下方验证。其他浏览器的登录不会同步到这里。';}catch{$('#loginError').textContent='登录邮件未能发送；可能达到邮件限额，请稍后重试。';}finally{button.disabled=false;}};
-$('#verifyLoginForm').onsubmit=async event=>{
-  event.preventDefault();const button=$('#verifyLogin'),link=$('#loginLink').value;$('#loginLink').value='';button.disabled=true;$('#verifyLoginError').textContent='正在验证';
+function clearLoginSecrets(){$('#loginLink').value='';$('#loginPassword').value='';}
+function cancelLogin(){loginController?.abort();clearLoginSecrets();}
+async function submitLogin(event,kind){
+  event.preventDefault();if(loginController)return;
+  const controller=new AbortController();loginController=controller;
+  const isPassword=kind==='password',errorNode=$(isPassword?'#passwordLoginError':'#verifyLoginError');
+  const secret=$(isPassword?'#loginPassword':'#loginLink').value,email=$(isPassword?'#passwordEmail':'#verifyLoginEmail').value;
+  clearLoginSecrets();for(const id of ['#passwordLogin','#verifyLogin','#sendLogin'])$(id).disabled=true;errorNode.textContent='正在登录';
   try{
     if(!auth)throw new Error('登录服务暂不可用，请刷新重试。');
-    await auth.verifyEmailLink(link,$('#verifyLoginEmail').value);$('#verifyLoginError').textContent='';$('#loginDialog').close();
+    if(isPassword)await auth.signInWithPassword(email,secret,{signal:controller.signal});
+    else await auth.verifyEmailLink(secret,email,{signal:controller.signal});
+    if(controller.signal.aborted)return;
+    errorNode.textContent='';$('#loginDialog').close();
     try{await hydrateCloud();toast('已登录，云端数据已读取');}catch{toast('已登录，云端数据读取失败，请点击云端状态重试',true);}
-  }catch(error){$('#verifyLoginError').textContent=error.message;}finally{button.disabled=false;}
+  }catch(error){if(!controller.signal.aborted)errorNode.textContent=error.message;}
+  finally{loginController=null;for(const id of ['#passwordLogin','#verifyLogin','#sendLogin'])$(id).disabled=false;}
+}
+$('#passwordLoginForm').onsubmit=event=>submitLogin(event,'password');
+$('#verifyLoginForm').onsubmit=event=>submitLogin(event,'email');
+$('#cancelLogin').onclick=()=>{cancelLogin();$('#loginDialog').close();};
+$('#loginDialog').addEventListener('cancel',cancelLogin);
+$('#loginDialog').addEventListener('close',clearLoginSecrets);
+function clearNewPasswords(){$('#newLoginPassword').value='';$('#confirmLoginPassword').value='';}
+$('#setPasswordButton').onclick=()=>{clearNewPasswords();$('#passwordSetupError').textContent='';$('#passwordSetupDialog').showModal();};
+$('#cancelPasswordSetup').onclick=()=>{clearNewPasswords();$('#passwordSetupDialog').close();};
+$('#passwordSetupDialog').addEventListener('cancel',event=>{if($('#saveLoginPassword').disabled)event.preventDefault();else clearNewPasswords();});
+$('#passwordSetupDialog').addEventListener('close',clearNewPasswords);
+$('#passwordSetupForm').onsubmit=async event=>{
+  event.preventDefault();const password=$('#newLoginPassword').value,confirmation=$('#confirmLoginPassword').value;clearNewPasswords();
+  if(password!==confirmation){$('#passwordSetupError').textContent='两次密码不一致，请重新输入。';return;}
+  const button=$('#saveLoginPassword');button.disabled=true;$('#cancelPasswordSetup').disabled=true;
+  try{await auth.setPassword(password);$('#passwordSetupDialog').close();toast('密码已设置，以后可用邮箱和密码登录');}
+  catch(error){$('#passwordSetupError').textContent=error.message;}
+  finally{button.disabled=false;$('#cancelPasswordSetup').disabled=false;}
 };
-$('#cancelLogin').onclick=()=>{$('#loginLink').value='';$('#loginDialog').close();};
-$('#loginDialog').addEventListener('cancel',()=>{$('#loginLink').value='';});
 $('#signOutButton').onclick=async()=>{try{await auth.signOut();for(const image of evidenceStore.all())delete image.signedUrl;renderImages();toast('已退出登录；此浏览器保存的日报仍保留');}catch(error){toast(error.message,true);}};
 
 
