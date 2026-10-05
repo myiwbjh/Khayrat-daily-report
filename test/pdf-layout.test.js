@@ -8,9 +8,23 @@ import {
   extractQuantities,
   documentDate,
   textLayout,
+  markDecorativeImages,
 } from "../src/pdf-layout.js";
 import { analyzeRecords } from "../src/analytics.js";
 const date = { date: "2026-09-30", uncertain: false, candidates: [] };
+test('small or repeated margin logos are excluded while construction photos remain',()=>{
+  const pages=[1,2].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[
+    {objectId:`logo_${pageNumber}`,bbox:{x:20,y:18,width:120,height:34}},
+    {objectId:`photo_${pageNumber}`,bbox:{x:45,y:145,width:510,height:330}},
+  ]}));
+  assert.equal(markDecorativeImages(pages),2);
+  assert.equal(pages[0].imagePlacements[0].decorative,true);
+  assert.equal(pages[1].imagePlacements[0].decorativeReason,'small-margin-image');
+  assert.equal(pages.every(p=>p.imagePlacements[1].decorative===false),true);
+  const repeated=[1,2,3].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[{objectId:`different_${pageNumber}`,bbox:{x:15,y:8,width:400,height:85}}]}));
+  assert.equal(markDecorativeImages(repeated),3);
+  assert.equal(repeated[0].imagePlacements[0].decorativeReason,'repeated-margin-image');
+});
 function page(lines) {
   const rows = lines.map(([y, values]) => {
     const tokens = values.map(([x, text]) => ({

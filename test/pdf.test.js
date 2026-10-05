@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parsePDF, mapPDFText } from '../src/pdf.js';
 import { EvidenceStore } from '../src/storage.js';
-import { analyzeImageMetadata, findEvidenceConflicts } from '../src/image-analysis.js';
+import { analyzeImageMetadata, findEvidenceConflicts, summarizeImageEvidence } from '../src/image-analysis.js';
 import { parseWithPDFJS, OCRProvider } from '../src/pdfjs-adapter.js';
 
 class MemoryStorage { constructor(){this.data=new Map()} getItem(k){return this.data.get(k)??null} setItem(k,v){this.data.set(k,v)} }
@@ -13,6 +13,12 @@ test('imports PDF text and embedded image with provenance',async()=>{const resul
 test('degrades safely when PDF has no mapped fields or supported images',async()=>{const result=await parsePDF(fixturePDF({withText:false,withImage:false}),'empty.pdf');assert.deepEqual(result.records,[]);assert.deepEqual(result.images,[]);assert.ok(result.diagnostics.warnings.length);await assert.rejects(()=>parsePDF(new TextEncoder().encode('not pdf').buffer),/有效/);});
 test('stores and manually corrects image evidence',()=>{const storage=new MemoryStorage(),store=new EvidenceStore(storage),image={imageId:'i1',sourceFile:'x.pdf',pageNumber:1,imageIndex:1,tags:[]};assert.equal(store.merge([image,image]).added,1);store.update('i1',{relatedWorkshop:'Grinding',critical:true,manualReviewed:true});assert.equal(store.all()[0].critical,true);assert.equal(store.all()[0].relatedWorkshop,'Grinding');});
 test('metadata never pretends to see pixels or infers stoppage from text',()=>{const analysis=analyzeImageMetadata({nearbyText:'无人，设备到货'});assert.equal(analysis.scene,'无法判断');assert.equal(analysis.evidenceType,'日报文字');assert.equal(analysis.reviewRecommended,true);assert.deepEqual(analysis.visibleFacts,[]);assert.equal(findEvidenceConflicts({status:'停工'},[{imageId:'i',scene:'施工中',provider:'text-only'}]).length,0);});
+test('dashboard image summary counts evidence without inventing numeric progress',()=>{const summary=summarizeImageEvidence([
+  {imageId:'a',relatedDate:'2026-09-30',relatedWorkshop:'磨房',relatedRecordId:'r',visionEnabled:true,scene:'施工中',reviewRecommended:true,crossValidation:{status:'consistent'}},
+  {imageId:'b',relatedDate:'2026-09-30',relatedWorkshop:'磨房',visionEnabled:true,scene:'材料堆放',crossValidation:{status:'potential-conflict'}},
+  {imageId:'c',relatedDate:'2026-09-30',relatedWorkshop:'磨房'},
+  {imageId:'logo',ignored:true,visionEnabled:true,scene:'无法判断'},
+],{date:'2026-09-30',workshop:'磨房'});assert.deepEqual({total:summary.total,analyzed:summary.analyzed,linked:summary.linked,pending:summary.pending,review:summary.review,conflicts:summary.conflicts},{total:3,analyzed:2,linked:1,pending:1,review:1,conflicts:1});assert.deepEqual(summary.sceneCounts,[['施工中',1],['材料堆放',1]]);});
 test('PDF.js adapter preserves page location and marks missing fields for review',async()=>{const pdfjs={getDocument:()=>({promise:Promise.resolve({numPages:2,getPage:async page=>({getTextContent:async()=>({items:page===1?[{str:'Date: 2026-09-07',transform:[1,0,0,1,10,100]},{str:'Workshop: Grinding',transform:[1,0,0,1,10,90]},{str:'Process: Foundation',transform:[1,0,0,1,10,80]}]:[]})})})})};const result=await parseWithPDFJS(new ArrayBuffer(1),'real.pdf',{pdfjs});assert.equal(result.diagnostics.engine,'PDF.js');assert.equal(result.pages.length,2);assert.equal(result.records[0].sourceLocation.pageNumber,1);assert.ok(result.diagnostics.warnings[0].includes('未授权 OCR'));});
 test('OCR provider requires consent and backend configuration',async()=>{await assert.rejects(()=>new OCRProvider({endpoint:'/ocr',consent:false}).recognize({},{}),/授权/);await assert.rejects(()=>new OCRProvider({consent:true}).recognize({},{}),/配置/);});
 

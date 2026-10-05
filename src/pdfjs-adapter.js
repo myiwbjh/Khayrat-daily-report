@@ -14,6 +14,7 @@ import {
   constructionBlocks,
   associateFigure,
   figureGroups,
+  markDecorativeImages,
 } from "./pdf-layout.js";
 
 const DEFAULT_PDFJS_URL = "/vendor/pdf.mjs";
@@ -101,7 +102,7 @@ export async function parseWithPDFJS(
           warnings.push(`第 ${n} 页布局提取失败：${error.message}`);
         }
     }
-    const date = documentDate(pages);
+    const decorativeImages=markDecorativeImages(pages), date = documentDate(pages);
     for (let i = 0; i < pages.length; i++) {
       const entry = pages[i],
         { page } = handles[i],
@@ -156,10 +157,7 @@ export async function parseWithPDFJS(
         process: record.process,
         excerpt: record.sourceExcerpt,
       }));
-      const placements = entry.imagePlacements.filter((im) => {
-        im.decorative = im.bbox.y < 50 && im.bbox.height < 40;
-        return !im.decorative;
-      });
+      const placements = entry.imagePlacements.filter((im) => !im.decorative);
       for (const group of figureGroups(placements))
         try {
           const decoded = [];
@@ -279,10 +277,7 @@ export async function parseWithPDFJS(
         pageCount: pages.length,
         textPages: pages.filter((p) => p.text.trim()).length,
         imageCount: images.length,
-        decorativeImages: pages.reduce(
-          (n, p) => n + p.imagePlacements.filter((i) => i.decorative).length,
-          0,
-        ),
+        decorativeImages,
         warnings,
         engine: "PDF.js",
         date: date.date,
