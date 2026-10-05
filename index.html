@@ -65,7 +65,7 @@
 
       <section id="emptyState" class="empty-state">
         <span class="empty-icon">⇧</span><h2>导入工程日报，开始真实数据分析</h2>
-        <p>支持 CSV 与 Excel（.xlsx）文件。系统不会用虚构数据填充指标；也可载入带醒目标识的示例数据了解功能。</p>
+        <p>支持 PDF、CSV 与 Excel（.xlsx）文件。PDF 会提取文字、表格和有效施工照片，排除页眉 Logo 等装饰图片。</p>
         <div><button class="primary import-trigger">选择日报文件</button><button id="demoButton" class="outline">载入示例数据</button></div>
         <button id="templateButton" class="text-button">下载标准 CSV 模板 →</button>
       </section>
@@ -78,6 +78,7 @@
           <article><span>当期 / 累计完成量</span><b id="concreteKpi">—</b><small id="concreteNote">按导入单位统计</small></article>
           <article><span>现场人员</span><b id="peopleKpi">—</b><small id="peopleNote">中方 — · 属地 —</small></article>
           <article class="alert-kpi"><span>连续停工预警</span><b id="stoppageKpi">—</b><small>连续 3 个有效日报日</small></article>
+          <article><span>照片证据识别</span><b id="photoKpi">—</b><small id="photoNote">已识别 / 有效照片</small></article>
         </section>
 
         <section class="grid">
@@ -104,6 +105,10 @@
           <article class="panel evidence-panel" id="evidence">
             <div class="panel-title"><div><h2>连续停工证据链</h2><p>规则：同一车间与工序连续 ≥ 3 个有效日报日满足停工条件</p></div></div>
             <div id="evidenceList" class="evidence-list"></div>
+          </article>
+          <article class="panel photo-evidence-panel">
+            <div class="panel-title"><div><h2>图片识别概览</h2><p>仅汇总照片可见场景与图文核对，不从照片估算人数、工程量或进度百分比</p></div></div>
+            <div id="photoEvidenceSummary"></div>
           </article>
         </section>
       </div>
@@ -161,7 +166,7 @@
 
       <section class="import-panel" id="import">
         <div><span class="import-icon">⇧</span><div><h2>日报数据导入</h2><p>可多选 CSV / XLSX / PDF；统一标准化并按日期、车间、工序去重。PDF 图片进入证据库。</p></div></div>
-        <div class="import-actions"><label class="ocr-consent"><input id="ocrConsent" type="checkbox"> 授权扫描页发送至 OpenAI OCR（额外按 token 计费；结果须复核）</label><button class="primary import-trigger">选择文件</button><button id="folderImportButton" class="outline">选择 PDF 文件夹</button></div>
+        <div class="import-actions"><label class="ocr-consent"><input id="ocrConsent" type="checkbox"> 授权扫描页发送至 OCR（扫描版 PDF 才需要）</label><label class="ocr-consent"><input id="analyzeAfterImport" type="checkbox"> <span id="analyzeAfterImportText">视觉分析配置检查中</span></label><button class="primary import-trigger">选择文件</button><button id="folderImportButton" class="outline">选择 PDF 文件夹</button></div>
         <input id="fileInput" type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
         <input id="folderInput" type="file" accept=".pdf,application/pdf" webkitdirectory directory multiple hidden>
         <div id="importLog" class="import-log" aria-live="polite"></div>

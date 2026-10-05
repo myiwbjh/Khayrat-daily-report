@@ -45,7 +45,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
   return state;
 }
 async function login(page){const s=session();await page.goto(`/#access_token=${s.access_token}&refresh_token=${s.refresh_token}&expires_in=3600&token_type=bearer&type=magiclink`);await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');}
-async function upload(page){await page.locator('#fileInput').setInputFiles(fixture);await expect(page.locator('#importSummary')).toContainText('2 条记录、4 张图片',{timeout:25000});}
+async function upload(page){await page.locator('#fileInput').setInputFiles(fixture);await expect(page.locator('#importSummary')).toContainText('2 条记录、4 张有效施工图片',{timeout:25000});}
 
 test('first email login uses correct redirect, remembered session restores and logout is explicit',async({page})=>{
   const state=await sandbox(page);await page.goto('/');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#emailLoginFallback summary').click();await page.locator('#loginEmail').fill(user.email);await page.locator('#sendLogin').click();await expect(page.locator('#loginError')).toContainText('邮件已发送');expect(state.otp.body.create_user).toBe(false);expect(state.otp.redirect).toBe('http://127.0.0.1:4173/');
@@ -86,7 +86,7 @@ test('manual report saves to authenticated cloud and retains construction conten
 const realReports=JSON.parse(process.env.KHAYRAT_REAL_PDFS||'[]');
 for(const report of realReports)test(`REAL Khayrat ${report.date}: layout, personnel, images, original, review and duplicate import`,async({page})=>{
   test.setTimeout(120000);const errors=[];page.on('pageerror',e=>errors.push(e.message));const state=await sandbox(page);await login(page);
-  await page.locator('#fileInput').setInputFiles(report.path);await expect(page.locator('#importSummary')).toContainText('12 条记录、11 张图片',{timeout:60000});
+  await page.locator('#fileInput').setInputFiles(report.path);await expect(page.locator('#importSummary')).toContainText('12 条记录、11 张有效施工图片',{timeout:60000});
   await expect(page.locator('#importPreviewRows')).toContainText(report.date);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible({timeout:60000});
   expect(state.reports).toHaveLength(12);expect(state.images).toHaveLength(11);expect(state.objects.size).toBe(12);expect(state.images.every(i=>i.payload.originalObjectPath)).toBe(true);
   const summary=state.reports.find(r=>r.payload.recordType==='personnel-summary').payload;
@@ -109,6 +109,14 @@ test('vision stays disabled without approved configuration and consent; manual i
 
 test('MOCK vision consent gates authenticated ID-only request; human correction retains model facts and saves cloud review',async({page})=>{
   const state=await sandbox(page,{visionEnabled:true});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.getByRole('link',{name:'图片证据'}).click();await page.locator('[data-open-image]').first().click();await page.locator('#analyzeImage').click();await expect(page.locator('#toast')).toContainText('传输授权');expect(state.visionCalls).toHaveLength(0);await page.locator('#closeImageDialog').click();await page.locator('#visionConsent').check();await page.locator('[data-open-image]').first().click();await page.locator('#analyzeImage').click();await expect(page.locator('#imageVisibleFacts')).toContainText('SYNTHETIC: visible rebar');expect(state.visionCalls).toHaveLength(1);expect(state.visionCalls[0].body).toEqual({imageId:state.images[0].image_id,consent:true});expect(state.visionCalls[0].authorization).toContain('Bearer ');expect(state.images[0].payload.manualReviewed).toBe(false);await page.locator('#imageForm [name=reviewedVisibleFacts]').fill('人工确认：模板');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();expect(state.images[0].payload.visibleFacts).toEqual(['人工确认：模板']);expect(state.images[0].payload.automaticAnalysis.visibleFacts).toEqual(['SYNTHETIC: visible rebar']);expect(state.images[0].payload.manualReview.confirmed).toBe(true);expect(state.images[0].payload.confidence).toBe(.7);
+});
+
+test('PDF upload can analyze effective photos and update dashboard evidence summary',async({page})=>{
+  const state=await sandbox(page,{visionEnabled:true,freeVision:true,visionInterval:0});await login(page);
+  await expect(page.locator('#analyzeAfterImport')).toBeEnabled();await page.locator('#analyzeAfterImport').check();await upload(page);
+  await expect(page.locator('#importSummary')).toContainText('上传后将自动分析图片');await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();
+  await expect.poll(()=>state.visionCalls.length,{timeout:30000}).toBe(4);await expect(page.locator('#photoKpi')).toHaveText('4/4');await expect(page.locator('#photoEvidenceSummary')).toContainText('材料堆放');
+  expect(state.images.filter(image=>image.payload.visionEnabled)).toHaveLength(4);expect(state.images.every(image=>image.payload.scene==='材料堆放')).toBe(true);
 });
 
 

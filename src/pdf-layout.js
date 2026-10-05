@@ -41,6 +41,33 @@ export function union(boxes) {
     Math.max(...boxes.map((b) => b.y + b.height)),
   ]);
 }
+
+const rounded = value => Math.round(value * 40) / 40;
+// Logos and page furniture are identified from layout, never from filename or OCR.
+// A single small item in the header/footer is decorative; larger margin images
+// are excluded only when the same object/placement repeats across pages.
+export function markDecorativeImages(pages) {
+  const occurrences = new Map();
+  const signature = (image, page) => {
+    const b=image.bbox||{}, w=Math.max(1,page.width), h=Math.max(1,page.height);
+    const geometry=[b.x/w,b.y/h,b.width/w,b.height/h].map(rounded).join('|');
+    return `geometry:${geometry}`;
+  };
+  for(const page of pages)for(const image of page.imagePlacements||[]){
+    const key=signature(image,page), seen=occurrences.get(key)||new Set();seen.add(page.pageNumber);occurrences.set(key,seen);
+  }
+  let count=0;
+  for(const page of pages)for(const image of page.imagePlacements||[]){
+    const b=image.bbox||{}, pageArea=Math.max(1,page.width*page.height), area=Math.max(0,b.width*b.height), centerY=b.y+b.height/2;
+    const top=centerY<=page.height*.14, bottom=centerY>=page.height*.9;
+    const smallMargin=(top||bottom)&&b.width<=page.width*.35&&b.height<=page.height*.1&&area<=pageArea*.04;
+    const repeatedMargin=(top||bottom)&&occurrences.get(signature(image,page))?.size>=2&&area<=pageArea*.09;
+    image.decorative=Boolean(smallMargin||repeatedMargin);
+    image.decorativeReason=smallMargin?'small-margin-image':repeatedMargin?'repeated-margin-image':'';
+    if(image.decorative)count++;
+  }
+  return count;
+}
 export function textLayout(items, viewport) {
   const tokens = items
     .filter((i) => i.str?.trim())

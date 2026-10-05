@@ -28,3 +28,11 @@
 #passwordSetupDialog{border:1px solid #cbd5e1;border-radius:14px;padding:24px;width:min(720px,90vw);max-height:90vh;overflow:auto}
 #passwordSetupForm input{display:block;padding:12px;width:100%;margin:8px 0;border:1px solid #cbd5e1;border-radius:6px;font:inherit}
 #emailLoginFallback{margin:16px 0}
+.kpis{grid-template-columns:repeat(6,1fr)}
+.photo-evidence-panel{grid-column:1/-1;min-height:150px}
+.photo-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.photo-summary b,.photo-summary span{background:#eef4f4;border-radius:7px;padding:8px 10px;font-size:10px}
+.photo-summary b{background:#e1f2ee;color:#08756c}
+.scene-summary{display:flex;gap:7px;flex-wrap:wrap}.scene-summary .tag{padding:5px 9px}
+.import-actions{flex-wrap:wrap;justify-content:flex-end}.ocr-consent{max-width:240px}
+@media(max-width:1300px){.kpis{grid-template-columns:repeat(3,1fr)}}

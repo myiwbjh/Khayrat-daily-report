@@ -19,3 +19,10 @@ export function findEvidenceConflicts(record,images){
     if(!image.visionEnabled&&image.provider!=='text-only'&&/施工中/.test(record.status||'')&&/停工/.test(image.scene||''))conflicts.push({imageId:image.imageId,reason:'旧规则停工推断未经像素分析，需重新复核'});
   }return conflicts;
 }
+export function summarizeImageEvidence(images,{date='',workshop='',process=''}={}){
+  const relevant=images.filter(i=>!i.ignored&&(!date||!i.relatedDate||i.relatedDate<=date)&&(!workshop||i.relatedWorkshop===workshop)&&(!process||i.relatedProcess===process));
+  const analyzed=relevant.filter(i=>i.visionEnabled||i.manualReviewed),linked=relevant.filter(i=>i.relatedRecordId||i.relatedRecordKey||i.association?.status?.startsWith('linked'));
+  const conflicts=relevant.filter(i=>i.crossValidation?.status==='potential-conflict');
+  const scenes=new Map();for(const image of analyzed){const scene=image.scene||'无法判断';scenes.set(scene,(scenes.get(scene)||0)+1);}
+  return {total:relevant.length,analyzed:analyzed.length,linked:linked.length,pending:relevant.length-analyzed.length,review:relevant.filter(i=>i.reviewRecommended&&!i.manualReviewed).length,conflicts:conflicts.length,sceneCounts:[...scenes].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])),conflictItems:conflicts};
+}
