@@ -56,7 +56,8 @@
       </section>
 
       <section class="filters">
-        <label>分析截止日期<input id="dateFilter" type="date"></label>
+        <label>日报截止日期<input id="dateFilter" type="date"></label>
+        <label>进度/交叉分析截至<input id="progressAsOf" type="date"></label>
         <label>车间<select id="workshopFilter"><option value="">全部车间</option></select></label>
         <label>工序<select id="processFilter"><option value="">全部工序</option></select></label>
         <button id="clearFilters">重置筛选</button>
@@ -161,6 +162,7 @@
         <div class="entry-heading"><div><p class="eyebrow">PHOTO EVIDENCE / REVIEW</p><h1>现场图片证据</h1><p>管理 PDF 提取图片、规则分析结果与日报关联。图片可见内容和自动推断始终分开展示。</p></div><span id="imageStorageCount" class="count">0 张</span></div>
         <div class="storage-notice"><b>分析边界</b><span>日报原文、图片可见事实与 AI 推断分开展示。视觉分析须经项目负责人批准服务费用，并取得本次图片传输授权；没有人员不代表停工。</span></div>
         <p id="visionStatus"></p><label class="check"><input id="visionConsent" type="checkbox"> <span id="visionConsentText">视觉服务未配置；请先确认接收平台和数据处理规则。</span></label><button id="analyzeImages" class="outline">分析尚未识别图片（每批最多 33 张）</button><button id="stopVision" class="outline" disabled>停止后续分析</button><section class="filters image-filters"><label>日期<input id="imageDate" type="date"></label><label>车间<select id="imageWorkshop"><option value="">全部车间</option></select></label><label>工序<select id="imageProcess"><option value="">全部工序</option></select></label><label>日报名称<input id="imageSource" placeholder="搜索文件名"></label><label class="check"><input id="criticalOnly" type="checkbox"> 仅关键证据</label><button id="imageReset">重置</button></section>
+        <button id="cleanLegacyLogos" class="outline">安全标记旧版 Logo</button>
         <div id="imageGallery" class="image-gallery"></div>
       </section>
 
@@ -170,6 +172,15 @@
         <input id="fileInput" type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden>
         <input id="folderInput" type="file" accept=".pdf,application/pdf" webkitdirectory directory multiple hidden>
         <div id="importLog" class="import-log" aria-live="polite"></div>
+      </section>
+      <section class="panel project-data-panel" id="projectData">
+        <div class="panel-title"><div><h2>多类数据源与交叉分析</h2><p>日报、WBS 进度、设备物流分别保存，通过 Crosswalk 多对多关联。</p></div></div>
+        <div class="data-source-grid">
+          <article><h3>进度 / 工程量</h3><p>Excel / CSV；用于总体 S Curve 与计划偏差。</p><button id="progressImportButton" class="primary">导入进度数据</button><button data-template="progress" class="outline">下载模板</button><input id="progressInput" type="file" accept=".csv,.xlsx" hidden><b id="progressCount">0 条</b></article>
+          <article><h3>设备 / 发货</h3><p>设备类别 → Package/Lot → 发运批次 → 设备。</p><button id="shipmentImportButton" class="primary">导入设备物流</button><button data-template="shipments" class="outline">下载模板</button><input id="shipmentInput" type="file" accept=".csv,.xlsx" hidden><b id="shipmentCount">0 条</b></article>
+          <article><h3>Crosswalk / Mapping</h3><p>连接日报车间/工序、WBS、设备类别和安装区域。</p><button id="mappingImportButton" class="primary">导入映射</button><button data-template="mappings" class="outline">下载模板</button><input id="mappingInput" type="file" accept=".csv,.xlsx" hidden><b id="mappingCount">0 条</b></article>
+        </div>
+        <div id="crossAnalysis" class="cross-analysis"></div>
       </section>
       <footer>KHAYRAT 3,200 TPD CEMENT GRINDING PLANT · SAMAWAH, IRAQ <span>云端配置可见 · 上传需授权</span></footer>
     </div>
@@ -183,3 +194,4 @@
   <script type="module" src="app.js"></script>
 </body>
 </html>
+
