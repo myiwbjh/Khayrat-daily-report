@@ -1,19 +1,21 @@
 import {test,expect} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
 const users=[1,2].map(n=>({id:`00000000-0000-4000-8000-00000000000${n}`,aud:'authenticated',role:'authenticated',email:`qa${n}@example.test`,email_confirmed_at:'2026-10-01T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}}));
 function session(user){const exp=Math.floor(Date.now()/1000)+3600;return {user,access_token:[Buffer.from('{"alg":"HS256"}').toString('base64url'),Buffer.from(JSON.stringify({sub:user.id,exp})).toString('base64url'),'mock-only'].join('.'),refresh_token:'synthetic-only',expires_in:3600,expires_at:exp,token_type:'bearer'};}
 async function sandbox(page){
- const state={user:users[0],tables:Object.fromEntries(['daily_reports','image_evidence','import_audits','progress_measurements','equipment_shipments','crosswalk_mappings'].map(t=>[t,[]])),posts:0,missing:false,denied:false};
+ const state={user:users[0],tables:Object.fromEntries(['daily_reports','image_evidence','import_audits','progress_measurements','progress_import_batches','equipment_shipments','crosswalk_mappings'].map(t=>[t,[]])),posts:0,missing:false,denied:false,objects:[]};
  await page.route('**/*',async route=>{const req=route.request(),url=new URL(req.url());if(url.origin==='http://127.0.0.1:4173'){if(url.pathname==='/api/config')return route.fulfill({json:{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'synthetic-public',storageBucket:'test-reports',authRequired:true}});return route.continue();}
  if(url.origin!=='https://qa.supabase.test')return route.abort();
  if(url.pathname==='/auth/v1/token'){const email=req.postDataJSON().email;state.user=users.find(u=>u.email===email)||state.user;return route.fulfill({json:session(state.user)});}
  if(url.pathname==='/auth/v1/user')return route.fulfill({json:state.user});if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
+ if(url.pathname.startsWith('/storage/v1/object/')){state.objects.push(url.pathname);return route.fulfill({json:{Key:url.pathname}});}
  if(url.pathname.startsWith('/rest/v1/')){const table=url.pathname.split('/').at(-1);if(!state.tables[table])return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});
- const isNew=['progress_measurements','equipment_shipments','crosswalk_mappings'].includes(table);
+ const isNew=['progress_measurements','progress_import_batches','equipment_shipments','crosswalk_mappings'].includes(table);
  if(isNew&&state.denied)return route.fulfill({status:403,json:{code:'42501',message:'permission denied'}});
  if(isNew&&state.missing)return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});
- if(req.method()==='GET'){if(url.searchParams.get('order')!==(table==='image_evidence'?'image_id':'id'))return route.fulfill({status:400,json:{code:'42703',message:'invalid ordering'}});return route.fulfill({json:state.user.id===users[0].id?state.tables[table]:[]});}
+ if(req.method()==='GET'){if(url.searchParams.has('file_hash')){const hash=url.searchParams.get('file_hash').replace(/^eq\./,'');return route.fulfill({json:state.tables[table].filter(row=>row.project_id==='khayrat'&&row.file_hash===hash)});}if(url.searchParams.get('order')!==(table==='image_evidence'?'image_id':'id'))return route.fulfill({status:400,json:{code:'42703',message:'invalid ordering'}});return route.fulfill({json:state.user.id===users[0].id?state.tables[table]:[]});}
  if(state.user.id!==users[0].id)return route.fulfill({status:403,json:{code:'42501',message:'not member'}});
- state.posts++;const key=table==='image_evidence'?'image_id':table==='import_audits'?'import_id':'id';for(const row of [req.postDataJSON()].flat()){const index=state.tables[table].findIndex(r=>r[key]===row[key]);if(index<0)state.tables[table].push(row);else state.tables[table][index]=row;}return route.fulfill({json:{}});
+ state.posts++;if(req.method()==='PATCH'){const body=req.postDataJSON();for(const row of state.tables[table]){if(url.searchParams.get('id')?.startsWith('eq.')&&row.id!==decodeURIComponent(url.searchParams.get('id').slice(3)))continue;if(url.searchParams.get('id')?.startsWith('neq.')&&row.id===decodeURIComponent(url.searchParams.get('id').slice(4)))continue;if(url.searchParams.get('current_version')==='eq.true'&&!row.current_version)continue;Object.assign(row,body);}return route.fulfill({json:{}});}const key=table==='image_evidence'?'image_id':table==='import_audits'?'import_id':'id';for(const row of [req.postDataJSON()].flat()){const index=state.tables[table].findIndex(r=>r[key]===row[key]);if(index<0)state.tables[table].push(row);else state.tables[table][index]=row;}return route.fulfill({json:{}});
  }
  return route.fulfill({status:404,json:{message:'unexpected mock endpoint'}});
  });return state;
@@ -38,4 +40,12 @@ test('missing new tables retain scoped local cache while permission errors are s
 test('personnel bars grow with total headcount and missing/future WBS points are not drawn as zero',async({page})=>{
  const state=await sandbox(page);state.tables.daily_reports=[100,200].map((n,i)=>({id:`staff-${i}`,project_id:'khayrat',payload:{id:`staff-${i}`,date:`2026-09-${29+i}`,workshop:'项目汇总',process:'人员',staffScope:'项目总人数',totalStaff:n,chineseStaff:n*.6,localStaff:n*.4}}));await login(page);await page.locator('#dateFilter').fill('');await page.locator('#dateFilter').dispatchEvent('change');await expect(page.locator('#workforceChart .staff-total')).toHaveCount(2);const widths=await page.locator('#workforceChart .staff-total').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().width));expect(widths[1]).toBeGreaterThan(widths[0]);
  await csv(page,'#progressInput','partial.csv','WBS,权重,月份,计划累计完成比例,实际累计完成比例\nA,60,2026-09,70,40\nB,40,2026-09,70,\nA,60,2026-11,90,80\nB,40,2026-11,90,80','#progressCount');await page.locator('#progressAsOf').fill('2026-10-06');await page.locator('#progressAsOf').dispatchEvent('change');await expect(page.locator('#actualKpi')).toHaveText('—');await expect(page.locator('#trendChart .actual-dot')).toHaveCount(0);await expect(page.locator('#trendChart .actual-line')).toHaveAttribute('d',/^\s*$/);
+});
+
+test('real project workbook drives WBS dashboard, stores one batch and rejects duplicate upload',async({page})=>{
+ const state=await sandbox(page);await login(page);const buffer=await readFile(new URL('../test/fixtures/Khayrat-progress-real.xlsx',import.meta.url));
+ await page.locator('#progressInput').setInputFiles({name:'Khayrat粉磨站进度跟踪表.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer});
+ await expect(page.locator('#progressCount')).toHaveText('19 个 WBS · 1 个快照');await expect(page.locator('#plannedKpi')).toHaveText('29.5%');await expect(page.locator('#actualKpi')).toHaveText('13.3%');await expect(page.locator('#concreteKpi')).toHaveText('13.8% / 4.1%');await expect(page.locator('#progressQuality')).toContainText('To Be Verified');await expect(page.locator('#disciplineProgress')).toContainText('Contribution to Project 13.3%');await expect(page.locator('#laggingWbsRows')).toContainText('1.7 钢板仓安装');
+ expect(state.tables.progress_import_batches).toHaveLength(1);expect(state.tables.progress_measurements).toHaveLength(532);expect(state.objects).toHaveLength(1);const posts=state.posts;
+ await page.locator('#progressInput').setInputFiles({name:'Khayrat粉磨站进度跟踪表.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer});await expect(page.locator('#toast')).toContainText('Hash 相同');expect(state.posts).toBe(posts);expect(state.tables.progress_measurements).toHaveLength(532);
 });
