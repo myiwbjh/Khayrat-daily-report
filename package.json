@@ -11,6 +11,7 @@
     "check": "npm test && node --check app.js"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.14",
     "@playwright/test": "1.55.0",
     "esbuild": "0.25.12",
     "fake-indexeddb": "6.2.4"

@@ -15,10 +15,14 @@ import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analy
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
+const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+$('#progressAsOf').value=today;$('#progressAsOf').max=today;
+function progressCutoff(){const selected=$('#progressAsOf').value||today;return selected>today?today:selected;}
 const store = new ReportStore();
 const evidenceStore = new EvidenceStore();
-const database = new ProjectDatabase();
-let records = store.all();
+let database = new ProjectDatabase();
+let records = [];
+let projectId='khayrat',cacheUser='',scopeVersion=0,scopeReady=Promise.resolve();
 let progressRecords=[],shipmentRecords=[],crosswalkMappings=[];
 let period = 'day';
 let demoMode = false;
@@ -35,27 +39,33 @@ const adapters = {
   // Extension point for a future Google Drive transport; downloaded files reuse these adapters.
 };
 async function syncDatabase(){try{await database.replace(store.all(),evidenceStore.all());}catch(error){console.warn('IndexedDB sync failed',error);}}
-try{const snapshot=await database.load();progressRecords=snapshot.progress||[];shipmentRecords=snapshot.shipments||[];crosswalkMappings=snapshot.mappings||[];if(snapshot.records.length||snapshot.images.length){store.write(snapshot.records);evidenceStore.setCache(snapshot.images);records=snapshot.records;}else await syncDatabase();}catch(error){console.warn('IndexedDB unavailable; using localStorage fallback',error);}
+async function selectCacheScope(userId){
+  if(cacheUser===userId)return scopeReady;
+  cacheUser=userId;const version=++scopeVersion;$('#dateFilter').value='';
+  store.setScope(projectId,userId);evidenceStore.setScope(projectId,userId);database=new ProjectDatabase();database.setScope(projectId,userId);
+  records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];pendingImport=null;
+  demoMode=false;visionController?.abort();$('#visionConsent').checked=false;
+  for(const dialog of ['#imageDialog','#sourceDialog','#importDialog'])if($(dialog).open)$(dialog).close();
+  $('#reportForm').reset();populateFilters();render();renderHistory();renderImages();
+  scopeReady=(async()=>{const snapshot=await database.load();if(version!==scopeVersion)return;
+    store.mergeRemote(snapshot.records);const ids=new Set(snapshot.images.map(i=>i.imageId));evidenceStore.setCache([...snapshot.images,...evidenceStore.all().filter(i=>!ids.has(i.imageId))]);records=store.all();
+    progressRecords=snapshot.progress||[];shipmentRecords=snapshot.shipments||[];crosswalkMappings=snapshot.mappings||[];
+    populateFilters();render();renderHistory();renderImages();
+  })().catch(()=>{if(version===scopeVersion){records=store.all();populateFilters();render();renderHistory();renderImages();}});
+  return scopeReady;
+}
 function updateCloudStatus(session){
-  if(cloud)cloud.token=session?.access_token||'';
+  if(cloud){const userId=session?.user?.id||'';if(cloud.userId!==userId)cloud=new SupabaseCloudRepository(cloud.config,{auth,userId});cloud.token=session?.access_token||'';}
+  if(cloud?.configured)selectCacheScope(session?.user?.id||'signed-out');
   $('#cloudStatus').textContent=!cloud?.configured?'本机模式 · 未配置云数据库':session?'已自动登录 · 云端连接':'云端已配置 · 点击登录';
   $('#signOutButton').hidden=!session;$('#setPasswordButton').hidden=!session;refreshVisionStatus();
 }
 async function hydrateCloud(){
   if(!cloud?.token)return;
-  const snapshot=await cloud.loadProject();store.mergeRemote(snapshot.records);evidenceStore.merge(snapshot.images);records=store.all();progressRecords=snapshot.progress||progressRecords;shipmentRecords=snapshot.shipments||shipmentRecords;crosswalkMappings=snapshot.mappings||crosswalkMappings;
+  const version=scopeVersion,repo=cloud;await scopeReady;const snapshot=await repo.loadProject();if(version!==scopeVersion)return;store.mergeRemote(snapshot.records);evidenceStore.merge(snapshot.images);records=store.all();const missing=new Set(snapshot.unavailableTables||[]);if(!missing.has('progress_measurements'))progressRecords=snapshot.progress||[];if(!missing.has('equipment_shipments'))shipmentRecords=snapshot.shipments||[];if(!missing.has('crosswalk_mappings'))crosswalkMappings=snapshot.mappings||[];await Promise.all([database.replaceProjectData('progress',progressRecords),database.replaceProjectData('shipments',shipmentRecords),database.replaceProjectData('mappings',crosswalkMappings)]);
   await hydrateImages();await syncDatabase();populateFilters();render();renderHistory();renderImages();
 }
 async function hydrateImages(){for(const image of evidenceStore.all())if(image.objectPath)try{image.signedUrl=await cloud.signedUrl(image.objectPath);}catch{image.signedUrl='';}}
-try{
-  const config=await loadCloudConfig();cloud=new SupabaseCloudRepository(config);updateCloudStatus(null);
-  if(cloud.configured){
-    auth=await createAuthSession(config);cloud.auth=auth;auth.subscribe(updateCloudStatus);
-    try{await auth.initialize();}catch(error){$('#cloudStatus').textContent='登录状态暂时无法验证 · 点击重试';}
-    // No automatic legacy-file migration or other cloud writes on startup.
-    if(cloud.token)try{await hydrateCloud();}catch(error){$('#cloudStatus').textContent='已登录 · 云端读取失败，点击重试';}
-  }
-}catch{$('#cloudStatus').textContent='本机模式 · 云端配置不可用';}
 $('#cloudStatus').onclick=async()=>{
   if(!cloud?.configured)return toast('部署环境尚未配置 Supabase',true);
   if(cloud.token){try{await hydrateCloud();toast('云端数据已读取');}catch(error){toast(error.message,true);}return;}
@@ -98,7 +108,7 @@ $('#passwordSetupForm').onsubmit=async event=>{
   catch(error){$('#passwordSetupError').textContent=error.message;}
   finally{button.disabled=false;$('#cancelPasswordSetup').disabled=false;}
 };
-$('#signOutButton').onclick=async()=>{try{await auth.signOut();for(const image of evidenceStore.all())delete image.signedUrl;renderImages();toast('已退出登录；此浏览器保存的日报仍保留');}catch(error){toast(error.message,true);}};
+$('#signOutButton').onclick=async()=>{try{await auth.signOut();for(const image of evidenceStore.all())delete image.signedUrl;renderImages();toast('已退出登录；缓存已隔离并保留');}catch(error){toast(error.message,true);}};
 
 
 function toast(message, error = false) {
@@ -118,7 +128,7 @@ function populateFilters() {
 }
 
 function escapeHTML(value = '') { const div = document.createElement('div'); div.textContent = String(value); return div.innerHTML; }
-const signedNumber=value=>value==null?'未报告':`${value>=0?'+':''}${Number(value.toFixed(3))}`;
+function signedNumber(value){return value==null?'未报告':`${value>=0?'+':''}${Number(value.toFixed(3))}`;}
 function renderComparison(){
   const dates=[...new Set(records.map(r=>r.date).filter(Boolean))].sort(),before=$('#compareBefore'),after=$('#compareAfter');
   const oldBefore=before.value,oldAfter=after.value,options=dates.map(d=>`<option>${escapeHTML(d)}</option>`).join('');
@@ -137,23 +147,23 @@ function renderChart(points) {
   if (!points.length) return '<div class="mini-empty">无可用时间序列</div>';
   const width = 700, height = 210, pad = 24, max = Math.max(100, ...points.flatMap(p => [p.planned || 0, p.actual || 0]));
   const x = i => pad + i * (width - pad * 2) / Math.max(1, points.length - 1), y = v => height - pad - (v || 0) / max * (height - pad * 2);
-  const path = key => points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p[key])}`).join(' ');
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="计划和实际进度趋势"><g class="grid-lines">${[0,25,50,75,100].map(v => `<line x1="${pad}" y1="${y(v)}" x2="${width-pad}" y2="${y(v)}"/><text x="0" y="${y(v)+3}">${v}%</text>`).join('')}</g><path class="plan-line" d="${path('planned')}"/><path class="actual-line" d="${path('actual')}"/>${points.map((p,i)=>`<circle class="actual-dot" cx="${x(i)}" cy="${y(p.actual)}" r="3"><title>${p.date}: 实际 ${pct(p.actual)}</title></circle>`).join('')}</svg><div class="x-labels">${points.map((p,i)=> i===0||i===points.length-1||i===Math.floor(points.length/2)?`<span style="left:${x(i)/width*100}%">${p.date.slice(5)}</span>`:'').join('')}</div>`;
+  const path=key=>{let connected=false;return points.map((p,i)=>{if(!Number.isFinite(p[key])){connected=false;return '';}const command=connected?'L':'M';connected=true;return `${command}${x(i)},${y(p[key])}`;}).join(' ');};
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="计划和实际进度趋势"><g class="grid-lines">${[0,25,50,75,100].map(v => `<line x1="${pad}" y1="${y(v)}" x2="${width-pad}" y2="${y(v)}"/><text x="0" y="${y(v)+3}">${v}%</text>`).join('')}</g><path class="plan-line" d="${path('planned')}"/><path class="actual-line" d="${path('actual')}"/>${points.map((p,i)=>Number.isFinite(p.actual)?`<circle class="actual-dot" cx="${x(i)}" cy="${y(p.actual)}" r="3"><title>${p.date}: 实际 ${pct(p.actual)}</title></circle>`:'').join('')}</svg><div class="x-labels">${points.map((p,i)=> i===0||i===points.length-1||i===Math.floor(points.length/2)?`<span style="left:${x(i)/width*100}%">${p.date.slice(5)}</span>`:'').join('')}</div>`;
 }
 
 function render() {
   renderProjectData();
   const filtered = filterRecords(records, { date: $('#dateFilter').value, workshop: $('#workshopFilter').value, process: $('#processFilter').value });
   $('#recordCount').textContent = `${filtered.length} 条原始记录`;
-  $('#emptyState').hidden = records.length > 0; $('#dashboard').hidden = records.length === 0; $('#demoBanner').hidden = !demoMode;
+  $('#emptyState').hidden = records.length > 0 || progressRecords.length > 0; $('#dashboard').hidden = records.length === 0 && progressRecords.length === 0; $('#demoBanner').hidden = !demoMode;
   $('#dataStatus').textContent = demoMode ? '示例数据 · 非项目实绩' : records.length ? `${records.length} 条记录已载入` : '尚未导入数据';
   renderComparison();
-  if (!records.length) return;
+  if (!records.length && !progressRecords.length) return;
   const a = analyzeRecords(filtered, period);
   const photo=summarizeImageEvidence(evidenceStore.all(),{date:$('#dateFilter').value,workshop:$('#workshopFilter').value,process:$('#processFilter').value});
-  const projectProgress=analyzeProgress(progressRecords),hasProjectProgress=progressRecords.length>0;
+  const projectProgress=analyzeProgress(progressRecords,{asOf:progressCutoff()}),hasProjectProgress=progressRecords.length>0;
   $('#plannedKpi').textContent = pct(hasProjectProgress?projectProgress.planned:a.kpis.planned); $('#actualKpi').textContent = pct(hasProjectProgress?projectProgress.actual:a.kpis.actual);
-  $('#plannedNote').textContent = a.latestDate ? `截至 ${a.latestDate}` : '等待数据';
+  $('#plannedNote').textContent = hasProjectProgress?`月末口径 · 截至 ${projectProgress.cutoff}${projectProgress.actual==null?' · 数据缺失/过期待复核':''}`:a.latestDate?`截至 ${a.latestDate}`:'等待数据';
   const projectVariance=hasProjectProgress?projectProgress.variance:a.kpis.variance;$('#varianceNote').textContent = projectVariance == null ? '缺少计划或实际值' : `计划偏差 ${delta(projectVariance)}${hasProjectProgress?' · 来源：进度/WBS':''}`;
   $('#concreteKpi').textContent = a.quantityGroups.length === 0 ? '—' : a.quantityGroups.length === 1 ? `${a.quantityGroups[0].daily?.toFixed(2) ?? '—'} / ${Number.isFinite(a.quantityGroups[0].cumulative)?a.quantityGroups[0].cumulative.toFixed(2):'—'}` : `${a.quantityGroups.length} 组`;
   $('#concreteNote').textContent = a.quantityGroups.length === 1 ? `${a.quantityGroups[0].workshop} · ${a.quantityGroups[0].unit}` : a.quantityGroups.length > 1 ? '按车间、工序和单位分别统计' : '暂无工程量数据';
@@ -172,14 +182,14 @@ function render() {
 
 function renderProjectData(){
   $('#progressCount').textContent=`${progressRecords.length} 条`;$('#shipmentCount').textContent=`${shipmentRecords.length} 条`;$('#mappingCount').textContent=`${crosswalkMappings.length} 条`;
-  const findings=crossAnalyze({reports:records,progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings});
+  const findings=crossAnalyze({reports:records,progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings,projectId,asOf:progressCutoff()});
   $('#crossAnalysis').innerHTML=findings.length?`<h3>交叉判断</h3>${findings.map(f=>`<article class="cross-finding"><span class="evidence-label">AI 推断 · ${escapeHTML(f.severity)}</span><h3>${escapeHTML(f.title)}</h3><p><b>原始事实：</b>${f.facts.map(escapeHTML).join('；')}</p><p><b>系统计算：</b>${escapeHTML(f.basis)}</p><p><b>待人工确认：</b>${escapeHTML(f.confirmation)}</p></article>`).join('')}`:'<p class="mini-empty">当前没有满足交叉预警规则的组合；原始事实、系统计算、AI 推断与待确认项会分开展示。</p>';
 }
 
 async function rowsFromFile(file){const ext=file.name.split('.').pop().toLowerCase();if(ext==='csv')return parseCSV(await file.text());if(ext==='xlsx')return parseXLSX(await file.arrayBuffer());throw new Error('仅支持 CSV / XLSX');}
 async function importProjectData(type,file){
   if(!file)return;const normalizers={progress:normalizeProgressRows,shipments:normalizeShipmentRows,mappings:normalizeCrosswalkRows},current={progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings};
-  try{if(cloud?.configured&&!cloud.token)throw new Error('请先登录，再导入需要保存到云端的项目数据');const rows=normalizers[type](await rowsFromFile(file),file.name);if(!rows.length)throw new Error('没有识别到有效数据，请核对模板列名');const merged=[...new Map([...current[type],...rows].map(row=>[row.id,row])).values()];if(cloud?.configured)await cloud.saveProjectData(type,rows,{sourceFile:file.name});await database.replaceProjectData(type,merged);if(type==='progress')progressRecords=merged;else if(type==='shipments')shipmentRecords=merged;else crosswalkMappings=merged;render();toast(`已导入 ${rows.length} 条${type==='progress'?'进度/WBS':type==='shipments'?'设备物流':'映射'}数据`);}catch(error){toast(error.message,true);}finally{$(`#${type==='progress'?'progress':type==='shipments'?'shipment':'mapping'}Input`).value='';}
+  try{if(cloud?.configured&&!cloud.token)throw new Error('请先登录，再导入需要保存到云端的项目数据');await scopeReady;const version=scopeVersion,repo=cloud;const rows=normalizers[type](await rowsFromFile(file),file.name,projectId);if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');if(!rows.length)throw new Error('没有识别到有效数据，请核对模板列名');const merged=[...new Map([...current[type],...rows].map(row=>[row.id,row])).values()];if(repo?.configured)await repo.saveProjectData(type,rows,{sourceFile:file.name});if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');await database.replaceProjectData(type,merged);if(type==='progress')progressRecords=merged;else if(type==='shipments')shipmentRecords=merged;else crosswalkMappings=merged;render();toast(`已导入 ${rows.length} 条${type==='progress'?'进度/WBS':type==='shipments'?'设备物流':'映射'}数据`);}catch(error){toast(error.message,true);}finally{$(`#${type==='progress'?'progress':type==='shipments'?'shipment':'mapping'}Input`).value='';}
 }
 $('#progressImportButton').onclick=()=>$('#progressInput').click();$('#shipmentImportButton').onclick=()=>$('#shipmentInput').click();$('#mappingImportButton').onclick=()=>$('#mappingInput').click();
 $('#progressInput').onchange=e=>importProjectData('progress',e.target.files[0]);$('#shipmentInput').onchange=e=>importProjectData('shipments',e.target.files[0]);$('#mappingInput').onchange=e=>importProjectData('mappings',e.target.files[0]);
@@ -189,7 +199,7 @@ async function importFiles(files) {
   files=[...files].filter(file=>/\.(csv|xlsx|pdf)$/i.test(file.name));const messages = [], imported = [], extractedImages=[];
   const hasPDF=files.some(file=>/\.pdf$/i.test(file.name));if(hasPDF&&cloud?.configured&&!cloud.token){toast(!cloud?.configured?'PDF 云端导入需要先配置 Supabase':'请先点击页头云端状态并完成登录，再导入 PDF',true);return;}
   for (const file of files) {
-    try { const ext = file.name.split('.').pop().toLowerCase(),sourceName=file.webkitRelativePath||file.name; if (!adapters[ext]) throw new Error('暂不支持此文件类型'); const allowOCR=$('#ocrConsent').checked&&Boolean(cloud?.config.ocrEnabled),adapter=ext==='pdf'?async()=>parsePDFDocument(await file.arrayBuffer(),sourceName,{allowOCR,ocrProvider:allowOCR?new OCRProvider({endpoint:'/api/ocr',consent:true,accessToken:cloud?.token||''}):null}):adapters[ext],result = await adapter(file); imported.push(...result.records); extractedImages.push(...result.images); messages.push(`${sourceName}: ${result.records.length} 条记录，${result.images.length} 张有效图片${result.diagnostics?.decorativeImages?`，已排除 ${result.diagnostics.decorativeImages} 张页眉/页脚装饰图`:''}${result.diagnostics?.warnings?.length?'，'+result.diagnostics.warnings.join(''):''}`); }
+    try { const ext = file.name.split('.').pop().toLowerCase(),sourceName=file.webkitRelativePath||file.name; if (!adapters[ext]) throw new Error('暂不支持此文件类型'); const allowOCR=$('#ocrConsent').checked&&Boolean(cloud?.config.ocrEnabled),adapter=ext==='pdf'?async()=>parsePDFDocument(await file.arrayBuffer(),sourceName,{allowOCR,ocrProvider:allowOCR?new OCRProvider({endpoint:'/api/ocr',consent:true,accessToken:cloud?.token||''}):null}):adapters[ext],result = await adapter(file); for(const r of result.records){r.projectId=projectId;if(projectId!=='khayrat'&&r.id)r.id=`${projectId}:${r.id}`;}for(const i of result.images){i.projectId=projectId;if(projectId!=='khayrat'){i.imageId=`${projectId}:${i.imageId}`;if(i.relatedRecordId)i.relatedRecordId=`${projectId}:${i.relatedRecordId}`;}}imported.push(...result.records); extractedImages.push(...result.images); messages.push(`${sourceName}: ${result.records.length} 条记录，${result.images.length} 张有效图片${result.diagnostics?.decorativeImages?`，已排除 ${result.diagnostics.decorativeImages} 张页眉/页脚装饰图`:''}${result.diagnostics?.warnings?.length?'，'+result.diagnostics.warnings.join(''):''}`); }
     catch (error) { messages.push(`${file.name}: 导入失败（${error.message}）`); }
   }
   const existingRecords=new Map(store.all().map(record=>[businessKey(record),record])),seen=new Set(),preview=imported.map(record=>{const key=businessKey(record),duplicate=existingRecords.has(key)||seen.has(key);seen.add(key);record.id=record.id||crypto.randomUUID();return {record,duplicate};});
@@ -198,21 +208,21 @@ async function importFiles(files) {
   for(const record of newRecords)record.originalFileId=`${importId}/${record.sourceFile||record.source}`;
   const existingImages=new Set(evidenceStore.all().map(i=>i.imageId)),newImages=extractedImages.filter(i=>!existingImages.has(i.imageId));
   for(const image of newImages){const related=newRecords.find(r=>businessKey(r)===image.relatedRecordKey)||existingRecords.get(image.relatedRecordKey);if(related)image.relatedRecordId=related.id;}
-  pendingImport={importId,fileObjects:[...files],files:[...files].map(f=>f.webkitRelativePath||f.name),records:newRecords,images:newImages,messages,hasPDF,cloudSave:Boolean(cloud?.configured&&cloud.token),autoAnalyze:Boolean($('#analyzeAfterImport').checked&&cloud?.config.visionEnabled&&cloud?.token),hasErrors:messages.some(x=>x.includes('导入失败'))};
+  pendingImport={scopeVersion,importId,fileObjects:[...files],files:[...files].map(f=>f.webkitRelativePath||f.name),records:newRecords,images:newImages,messages,hasPDF,cloudSave:Boolean(cloud?.configured&&cloud.token),autoAnalyze:Boolean($('#analyzeAfterImport').checked&&cloud?.config.visionEnabled&&cloud?.token),hasErrors:messages.some(x=>x.includes('导入失败'))};
   $('#importSummary').textContent=`解析 ${imported.length} 条记录、${extractedImages.length} 张有效施工图片；${preview.filter(x=>x.duplicate).length} 条重复将跳过；${messages.filter(x=>x.includes('导入失败')).length} 个文件失败。${pendingImport.autoAnalyze?' 上传后将自动分析图片。':''}`;
   $('#importMessages').textContent=messages.join('\n');
   $('#confirmImport').disabled=pendingImport.hasErrors||(!imported.length&&!extractedImages.length);
   $('#importPreviewRows').innerHTML=preview.slice(0,100).map(({record,duplicate})=>`<tr><td>${escapeHTML(record.sourceFile||record.source)}${record.pageNumber?` · 第 ${record.pageNumber} 页`:''}<details><summary>原文与复核</summary><p>${escapeHTML(record.sourceExcerpt||record.rawRecord||'')}</p><small>${record.needsReview?'待复核：'+escapeHTML(record.reviewFields.join(', ')):'已识别明确字段，仍请核对原文'}</small></details></td><td>${record.date||'<span class="negative">待复核</span>'}</td><td>${escapeHTML(record.workshop||'待复核')} / ${escapeHTML(record.process||'待复核')}</td><td>${escapeHTML(record.status||'—')}</td><td><span class="tag ${duplicate?'warning':'good'}">${duplicate?'重复跳过':'新增'}</span></td></tr>`).join('')||'<tr><td colspan="5" class="mini-empty">没有可导入的结构化记录</td></tr>';$('#uploadProgress').hidden=true;$('#confirmImport').textContent='确认上传并导入';$('#importDialog').showModal();
 }
 $('#cancelImport').onclick=()=>{pendingImport=null;$('#fileInput').value='';$('#folderInput').value='';$('#importDialog').close();toast('已取消，原有数据未修改');};
-$('#confirmImport').onclick=async()=>{if(!pendingImport)return;const batch=pendingImport,importId=batch.importId,pdfs=batch.fileObjects,analyzeQueue=batch.autoAnalyze?[...batch.images].slice(0,33):[];if(!batch.records.length&&!batch.images.length){pendingImport=null;$('#fileInput').value='';$('#folderInput').value='';$('#importDialog').close();toast('该日报已导入：记录与图片未重复保存');return;}if(batch.cloudSave&&!cloud?.token)return toast('云端身份已失效，请重新登录后重试',true);const button=$('#confirmImport'),progress=$('#uploadProgress'),bar=$('#uploadProgressBar'),label=$('#uploadProgressText'),total=Math.max(1,pdfs.length+batch.images.length);let completed=0;const update=item=>{completed++;progress.hidden=false;bar.style.width=`${Math.min(100,completed/total*100)}%`;label.textContent=item.error?`${item.name} 上传失败：${item.error}`:`正在上传 ${completed}/${total}：${item.name}`;};button.disabled=true;$('#cancelImport').disabled=true;try{let uploadPaths=[];if(batch.cloudSave){const originals=await cloud.uploadOriginals(pdfs,importId,update),pictures=await cloud.uploadEvidenceImages(batch.images,importId,update),failures=[...originals.failures,...pictures.failures];uploadPaths=[...originals.paths,...pictures.paths];if(failures.length)throw new Error(`${failures.length} 个文件上传失败，可点击重试；已成功部分不会重复统计`);for(let index=0;index<pdfs.length;index++){const name=pdfs[index].webkitRelativePath||pdfs[index].name;for(const record of batch.records)if((record.sourceFile||record.source)===name)record.originalObjectPath=originals.paths[index];for(const image of batch.images)if(image.sourceFile===name)image.originalObjectPath=originals.paths[index];}
-for(const image of batch.images)if(image.objectPath)image.signedUrl=await cloud.signedUrl(image.objectPath);await cloud.saveBatch(batch.records,batch.images,{importId,files:batch.files,uploadPaths});for(const image of batch.images)delete image.dataUrl;}else{await database.saveOriginals(batch.fileObjects,importId);for(const image of batch.images)image.localPreview=true;}const result=store.merge(batch.records),imageResult=evidenceStore.merge(batch.images);records=result.records;await syncDatabase();await database.addImport({importId,createdAt:new Date().toISOString(),files:batch.files,added:result.added,skipped:result.skipped,images:imageResult.added,uploadPaths,status:'complete',errors:[]}).catch(()=>{});demoMode=false;$('#importLog').textContent=[...batch.messages,`新增 ${result.added} 条，重复跳过 ${result.skipped} 条，新增图片 ${imageResult.added} 张${batch.cloudSave?'；云端保存完成':'；仅本机保存'}`].join('；');pendingImport=null;$('#fileInput').value='';$('#folderInput').value='';$('#importDialog').close();populateFilters();render();renderHistory();renderImages();toast(`导入完成：${result.added} 条日报，${imageResult.added} 张有效图片`);if(analyzeQueue.length){$('#visionConsent').checked=true;analyzePhotos(analyzeQueue);}}catch(error){await database.addImport({importId,createdAt:new Date().toISOString(),files:batch.files,status:'failed',error:error.message}).catch(()=>{});progress.hidden=false;label.textContent=`上传未完成：${error.message}`;button.textContent='重试失败上传';toast(error.message,true);}finally{button.disabled=false;$('#cancelImport').disabled=false;}};
+$('#confirmImport').onclick=async()=>{if(!pendingImport)return;if(pendingImport.scopeVersion!==scopeVersion)return toast('登录身份已改变，请重新导入',true);const batch=pendingImport,uploadCloud=cloud,uploadDatabase=database,importId=batch.importId,pdfs=batch.fileObjects,analyzeQueue=batch.autoAnalyze?[...batch.images].slice(0,33):[];if(!batch.records.length&&!batch.images.length){pendingImport=null;$('#fileInput').value='';$('#folderInput').value='';$('#importDialog').close();toast('该日报已导入：记录与图片未重复保存');return;}if(batch.cloudSave&&!cloud?.token)return toast('云端身份已失效，请重新登录后重试',true);const button=$('#confirmImport'),progress=$('#uploadProgress'),bar=$('#uploadProgressBar'),label=$('#uploadProgressText'),total=Math.max(1,pdfs.length+batch.images.length);let completed=0;const update=item=>{completed++;progress.hidden=false;bar.style.width=`${Math.min(100,completed/total*100)}%`;label.textContent=item.error?`${item.name} 上传失败：${item.error}`:`正在上传 ${completed}/${total}：${item.name}`;};button.disabled=true;$('#cancelImport').disabled=true;try{let uploadPaths=[];if(batch.cloudSave){const originals=await uploadCloud.uploadOriginals(pdfs,importId,update),pictures=await uploadCloud.uploadEvidenceImages(batch.images,importId,update),failures=[...originals.failures,...pictures.failures];uploadPaths=[...originals.paths,...pictures.paths];if(failures.length)throw new Error(`${failures.length} 个文件上传失败，可点击重试；已成功部分不会重复统计`);for(let index=0;index<pdfs.length;index++){const name=pdfs[index].webkitRelativePath||pdfs[index].name;for(const record of batch.records)if((record.sourceFile||record.source)===name)record.originalObjectPath=originals.paths[index];for(const image of batch.images)if(image.sourceFile===name)image.originalObjectPath=originals.paths[index];}
+for(const image of batch.images)if(image.objectPath)image.signedUrl=await uploadCloud.signedUrl(image.objectPath);await uploadCloud.saveBatch(batch.records,batch.images,{importId,files:batch.files,uploadPaths});for(const image of batch.images)delete image.dataUrl;}else{await uploadDatabase.saveOriginals(batch.fileObjects,importId);for(const image of batch.images)image.localPreview=true;}if(batch.scopeVersion!==scopeVersion)throw new Error('登录身份已改变，请重新导入');const result=store.merge(batch.records),imageResult=evidenceStore.merge(batch.images);records=result.records;await syncDatabase();await uploadDatabase.addImport({importId,createdAt:new Date().toISOString(),files:batch.files,added:result.added,skipped:result.skipped,images:imageResult.added,uploadPaths,status:'complete',errors:[]}).catch(()=>{});demoMode=false;$('#importLog').textContent=[...batch.messages,`新增 ${result.added} 条，重复跳过 ${result.skipped} 条，新增图片 ${imageResult.added} 张${batch.cloudSave?'；云端保存完成':'；仅本机保存'}`].join('；');pendingImport=null;$('#fileInput').value='';$('#folderInput').value='';$('#importDialog').close();populateFilters();render();renderHistory();renderImages();toast(`导入完成：${result.added} 条日报，${imageResult.added} 张有效图片`);if(analyzeQueue.length){$('#visionConsent').checked=true;analyzePhotos(analyzeQueue);}}catch(error){await uploadDatabase.addImport({importId,createdAt:new Date().toISOString(),files:batch.files,status:'failed',error:error.message}).catch(()=>{});progress.hidden=false;label.textContent=`上传未完成：${error.message}`;button.textContent='重试失败上传';toast(error.message,true);}finally{button.disabled=false;$('#cancelImport').disabled=false;}};
 
 $$('.import-trigger').forEach(b => b.onclick = () => $('#fileInput').click()); $('#importTop').onclick = () => { location.hash = 'import'; $('#fileInput').click(); };
 $('#fileInput').onchange = event => importFiles([...event.target.files]);
 $('#folderImportButton').onclick=()=>$('#folderInput').click();$('#folderInput').onchange=event=>importFiles([...event.target.files].filter(file=>/\.pdf$/i.test(file.name)));
 $$('.period-switch button').forEach(b => b.onclick = () => { $$('.period-switch button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); period=b.dataset.period; render(); });
-['dateFilter','workshopFilter','processFilter'].forEach(id => $(`#${id}`).onchange = render);
+['dateFilter','progressAsOf','workshopFilter','processFilter'].forEach(id => $(`#${id}`).onchange = render);
 $('#clearFilters').onclick = () => { $('#dateFilter').value = records.map(r=>r.date).sort().at(-1)||''; $('#workshopFilter').value=''; $('#processFilter').value=''; render(); };
 $('#demoButton').onclick = () => { records = SAMPLE_RECORDS.map(x=>({...x})); demoMode=true; populateFilters(); render(); toast('已载入明确标注的示例数据，不会写入本地存储'); };
 $('#clearData').onclick = () => { records=store.all(); demoMode=false; populateFilters(); render(); };
@@ -283,7 +293,8 @@ function openImage(imageId){
   if(!$('#imageDialog').open)$('#imageDialog').showModal();
 }
 async function persistEvidence(changed){
-  if(cloud?.configured){if(!cloud.token)throw new Error('请先登录再保存云端图片复核');if(!changed.objectPath)throw new Error('图片尚未上传，先完成导入');await cloud.saveEvidence([changed]);}
+  const version=scopeVersion,repo=cloud;
+  if(cloud?.configured){if(!cloud.token)throw new Error('请先登录再保存云端图片复核');if(!changed.objectPath)throw new Error('图片尚未上传，先完成导入');await repo.saveEvidence([changed]);if(version!==scopeVersion)throw new Error('登录身份已改变，请重新操作');}
   evidenceStore.update(changed.imageId,changed);await syncDatabase();renderImages();render();renderHistory();
 }
 $('#imageForm').elements.relatedRecordId.onchange=event=>{const r=store.all().find(r=>r.id===event.target.value);if(r)for(const key of ['relatedDate','relatedWorkshop','relatedProcess'])$('#imageForm').elements[key].value=r[{relatedDate:'date',relatedWorkshop:'workshop',relatedProcess:'process'}[key]]||'';};
@@ -314,3 +325,18 @@ $('#closeImageDialog').onclick=()=>$('#imageDialog').close();['imageDate','image
 $$('[data-view]').forEach(link=>link.onclick=event=>{event.preventDefault();$$('[data-view]').forEach(x=>x.classList.remove('active'));link.classList.add('active');$$('.page-view').forEach(view=>view.hidden=view.id!==link.dataset.view);if(link.dataset.view==='entryView')renderHistory();location.hash=link.getAttribute('href');if($('#sidebar').classList.contains('open'))menu();});
 resetForm(); populateFilters(); render(); renderHistory(); renderImages();
 if(location.hash==='#compare')document.querySelector('[data-view="compareView"]').click();else if (location.hash === '#entry') document.querySelector('[data-view="entryView"]').click(); else if(location.hash==='#images')document.querySelector('[data-view="imagesView"]').click();
+
+
+async function initializeCloud(){
+try{
+  const config=await loadCloudConfig();projectId=config.projectId||'khayrat';cloud=new SupabaseCloudRepository(config);updateCloudStatus(null);
+  if(cloud.configured){
+    auth=await createAuthSession(config);cloud.auth=auth;auth.subscribe(updateCloudStatus);
+    try{await auth.initialize();}catch(error){$('#cloudStatus').textContent='登录状态暂时无法验证 · 点击重试';}
+    // No automatic legacy-file migration or other cloud writes on startup.
+    if(cloud.token)try{await hydrateCloud();}catch(error){$('#cloudStatus').textContent='已登录 · 云端读取失败，点击重试';}
+  }else await selectCacheScope('offline');
+}catch{$('#cloudStatus').textContent='本机模式 · 云端配置不可用';await selectCacheScope('offline');}
+}
+await initializeCloud();
+document.documentElement.dataset.appReady="true";

@@ -3,36 +3,68 @@ import {parseReportDate} from './report-model.js';
 const text=value=>String(value??'').trim();
 const number=value=>{if(value===''||value==null)return null;const n=Number(String(value).replace(/[,% ]/g,''));return Number.isFinite(n)?n:null;};
 const valueOf=(row,aliases)=>{const entries=Object.fromEntries(Object.entries(row).map(([k,v])=>[k.trim().toLowerCase(),v]));const key=aliases.find(alias=>Object.hasOwn(entries,alias.toLowerCase()));return key?entries[key.toLowerCase()]:'';};
-const stableId=(prefix,parts)=>`${prefix}-${parts.map(text).join('|').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g,'-').replace(/^-|-$/g,'').slice(0,180)}`;
+export const stableId=(prefix,parts,projectId='khayrat')=>`${prefix}:${encodeURIComponent(JSON.stringify([projectId,...parts.map(text)]))}`;
+export const monthEnd=value=>{const date=parseReportDate(value)||(/^\d{4}-\d{2}$/.test(value)?parseReportDate(`${value}-01`):'');if(!date)return '';const [y,m]=date.split('-').map(Number);return new Date(Date.UTC(y,m,0)).toISOString().slice(0,10);};
 
 export const PROGRESS_HEADERS=['WBS','分部分项','权重','总量','单位','月份','月度计划量','月度实际量','计划月完成比例','计划累计完成比例','实际月完成比例','实际累计完成比例'];
 export const SHIPMENT_HEADERS=['设备类别','设备名称','供应商','Package/Lot','发运批次','数量','单位','重量','重量单位','发货日期','POL','POD','ETA','到港日期','清关状态','现场到货日期','当前状态','Installation Area / Intended Workshop'];
 export const CROSSWALK_HEADERS=['来源类型','来源值','目标类型','目标值','关系','备注'];
 
-export function normalizeProgressRows(rows,source='unknown'){
+export function normalizeProgressRows(rows,source='unknown',projectId='khayrat'){
   const aliases={wbs:['WBS','wbs_code','wbs'],item:['分部分项','WBS名称','工作项','item'],weight:['权重','weight'],total:['总量','total_quantity'],unit:['单位','unit'],month:['月份','month','日期'],plannedMonthlyQuantity:['月度计划量','planned_monthly_quantity'],actualMonthlyQuantity:['月度实际量','actual_monthly_quantity'],plannedMonthlyPct:['计划月完成比例','planned_monthly_pct'],plannedCumulativePct:['计划累计完成比例','planned_cumulative_pct'],actualMonthlyPct:['实际月完成比例','actual_monthly_pct'],actualCumulativePct:['实际累计完成比例','actual_cumulative_pct']};
-  return rows.map((row,index)=>{const out={sourceFile:source,sourceRow:index+2,sourceType:'progress'};for(const [field,names] of Object.entries(aliases))out[field]=['weight','total','plannedMonthlyQuantity','actualMonthlyQuantity','plannedMonthlyPct','plannedCumulativePct','actualMonthlyPct','actualCumulativePct'].includes(field)?number(valueOf(row,names)):text(valueOf(row,names));out.month=parseReportDate(out.month)||(/^\d{4}-\d{2}$/.test(out.month)?`${out.month}-01`:'');out.id=stableId('progress',[out.wbs,out.item,out.month]);out.reviewFields=[];if(!out.wbs&&!out.item)out.reviewFields.push('wbs/item');if(!out.month)out.reviewFields.push('month');if(out.weight!=null&&out.weight<0)out.reviewFields.push('weight');return {...out,needsReview:out.reviewFields.length>0};}).filter(r=>r.wbs||r.item);
+  return rows.map((row,index)=>{const out={sourceFile:source,sourceRow:index+2,sourceType:'progress'};for(const [field,names] of Object.entries(aliases))out[field]=['weight','total','plannedMonthlyQuantity','actualMonthlyQuantity','plannedMonthlyPct','plannedCumulativePct','actualMonthlyPct','actualCumulativePct'].includes(field)?number(valueOf(row,names)):text(valueOf(row,names));out.month=monthEnd(out.month);out.projectId=projectId;out.id=stableId('progress',[out.wbs,out.item,out.month],projectId);out.reviewFields=[];if(!out.wbs&&!out.item)out.reviewFields.push('wbs/item');if(!out.month)out.reviewFields.push('month');if(out.weight!=null&&out.weight<0)out.reviewFields.push('weight');return {...out,needsReview:out.reviewFields.length>0};}).filter(r=>r.wbs||r.item);
 }
 
-export function normalizeShipmentRows(rows,source='unknown'){
+export function normalizeShipmentRows(rows,source='unknown',projectId='khayrat'){
   const aliases={category:['设备类别','category'],equipmentName:['设备名称','equipment_name'],supplier:['供应商','supplier'],packageLot:['Package/Lot','Package','Lot','package_lot'],shipmentBatch:['发运批次','shipment_batch'],quantity:['数量','quantity'],unit:['单位','unit'],weight:['重量','weight'],weightUnit:['重量单位','weight_unit'],shippingDate:['发货日期','shipping_date'],pol:['POL','装货港'],pod:['POD','卸货港'],eta:['ETA','预计到港日期'],arrivalDate:['到港日期','arrival_date'],customsStatus:['清关状态','customs_status'],siteArrivalDate:['现场到货日期','site_arrival_date'],status:['当前状态','status'],installationArea:['Installation Area / Intended Workshop','安装区域','拟安装车间','installation_area']};
-  return rows.map((row,index)=>{const out={sourceFile:source,sourceRow:index+2,sourceType:'shipment'};for(const [field,names] of Object.entries(aliases)){const raw=valueOf(row,names);out[field]=['quantity','weight'].includes(field)?number(raw):['shippingDate','eta','arrivalDate','siteArrivalDate'].includes(field)?parseReportDate(raw):text(raw);}out.id=stableId('shipment',[out.category,out.packageLot,out.shipmentBatch,out.equipmentName]);out.reviewFields=[];if(!out.category)out.reviewFields.push('category');if(!out.equipmentName)out.reviewFields.push('equipmentName');if(!out.packageLot&&!out.shipmentBatch)out.reviewFields.push('packageLot/shipmentBatch');return {...out,needsReview:out.reviewFields.length>0};}).filter(r=>r.category||r.equipmentName||r.packageLot);
+  return rows.map((row,index)=>{const out={sourceFile:source,sourceRow:index+2,sourceType:'shipment'};for(const [field,names] of Object.entries(aliases)){const raw=valueOf(row,names);out[field]=['quantity','weight'].includes(field)?number(raw):['shippingDate','eta','arrivalDate','siteArrivalDate'].includes(field)?parseReportDate(raw):text(raw);}out.projectId=projectId;out.id=stableId('shipment',[out.category,out.supplier,out.packageLot,out.shipmentBatch,out.equipmentName],projectId);out.reviewFields=[];if(!out.category)out.reviewFields.push('category');if(!out.equipmentName)out.reviewFields.push('equipmentName');if(!out.packageLot&&!out.shipmentBatch)out.reviewFields.push('packageLot/shipmentBatch');return {...out,needsReview:out.reviewFields.length>0};}).filter(r=>r.category||r.equipmentName||r.packageLot);
 }
 
-export function normalizeCrosswalkRows(rows,source='unknown'){
+export function normalizeCrosswalkRows(rows,source='unknown',projectId='khayrat'){
   const aliases={sourceType:['来源类型','source_type'],sourceValue:['来源值','source_value'],targetType:['目标类型','target_type'],targetValue:['目标值','target_value'],relation:['关系','relation'],note:['备注','note']};
-  return rows.map((row,index)=>{const out={sourceFile:source,sourceRow:index+2};for(const [field,names] of Object.entries(aliases))out[field]=text(valueOf(row,names));out.relation=out.relation||'related';out.id=stableId('mapping',[out.sourceType,out.sourceValue,out.targetType,out.targetValue,out.relation]);return out;}).filter(r=>r.sourceType&&r.sourceValue&&r.targetType&&r.targetValue);
+  return rows.map((row,index)=>{const out={sourceFile:source,sourceRow:index+2};for(const [field,names] of Object.entries(aliases))out[field]=text(valueOf(row,names));out.relation=out.relation||'related';out.projectId=projectId;out.id=stableId('mapping',[out.sourceType,out.sourceValue,out.targetType,out.targetValue,out.relation],projectId);return out;}).filter(r=>r.sourceType&&r.sourceValue&&r.targetType&&r.targetValue);
 }
 
 const latestBy=(rows,key,dateField)=>{const map=new Map();for(const row of [...rows].sort((a,b)=>String(a[dateField]||'').localeCompare(String(b[dateField]||''))))map.set(key(row),row);return [...map.values()];};
-export function analyzeProgress(rows){const latest=latestBy(rows,r=>r.wbs||r.item,'month'),weighted=field=>{const valid=latest.filter(r=>r[field]!=null&&r.weight>0),weights=valid.reduce((n,r)=>n+r.weight,0);return weights?valid.reduce((n,r)=>n+r[field]*r.weight,0)/weights:null;};const timeline=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort().map(month=>{const items=latestBy(rows.filter(r=>r.month<=month),r=>r.wbs||r.item,'month'),calc=field=>{const valid=items.filter(r=>r[field]!=null&&r.weight>0),weights=valid.reduce((n,r)=>n+r.weight,0);return weights?valid.reduce((n,r)=>n+r[field]*r.weight,0)/weights:null;};return {month,planned:calc('plannedCumulativePct'),actual:calc('actualCumulativePct')};});const planned=weighted('plannedCumulativePct'),actual=weighted('actualCumulativePct');return {planned,actual,variance:planned!=null&&actual!=null?actual-planned:null,timeline,latest};}
+// A monthly cumulative value is an end-of-month observation, never a day-1 fact.
+export function analyzeProgress(rows,{asOf=new Date().toISOString().slice(0,10)}={}){
+  const valid=rows.filter(r=>monthEnd(r.month)).map(r=>({...r,month:monthEnd(r.month)}));
+  const key=r=>JSON.stringify([r.projectId||'khayrat',r.wbs||r.item]);
+  const universe=new Map();for(const r of valid){const k=key(r);if(!universe.has(k))universe.set(k,[]);universe.get(k).push(r);}
+  const weights=new Map(),issues=[];for(const [k,items] of universe){const values=[...new Set(items.map(r=>r.weight).filter(w=>Number.isFinite(w)&&w>0))];if(values.length!==1||items.some(r=>!Number.isFinite(r.weight)||r.weight<=0))issues.push(`weight:${k}`);else weights.set(k,values[0]);}
+  const totalWeight=[...weights.values()].reduce((a,b)=>a+b,0);
+  const aggregate=(items,field,cutoff)=>{const byKey=new Map(items.map(r=>[key(r),r]));let sum=0,coveredWeight=0;for(const [k,w] of weights){const r=byKey.get(k);if(r?.month===cutoff&&Number.isFinite(r[field])&&r[field]>=0&&r[field]<=100){sum+=r[field]*w;coveredWeight+=w;}}
+    return {value:!issues.length&&totalWeight>0&&coveredWeight===totalWeight?sum/totalWeight:null,coveredWeight,totalWeight};};
+  const currentEnd=monthEnd(asOf),d=new Date(`${currentEnd}T00:00:00Z`),cutoff=asOf>=currentEnd?currentEnd:new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),0)).toISOString().slice(0,10);
+  const latest=latestBy(valid.filter(r=>r.month<=cutoff),key,'month');
+  const planned=aggregate(latest,'plannedCumulativePct',cutoff),actual=aggregate(latest,'actualCumulativePct',cutoff);
+  const timeline=[...new Set(valid.map(r=>r.month))].sort().map(month=>{const items=latestBy(valid.filter(r=>r.month<=month),key,'month');return {month,planned:aggregate(items,'plannedCumulativePct',month).value,actual:month<=cutoff?aggregate(items,'actualCumulativePct',month).value:null};});
+  return {planned:planned.value,actual:actual.value,variance:planned.value!=null&&actual.value!=null?actual.value-planned.value:null,timeline,latest:latest.map(r=>({...r,stale:r.month!==cutoff})),cutoff,totalWeight,coverage:{planned,actual},issues};
+}
 
-const terminalLogistics=status=>/现场|到货|site|delivered/i.test(status||'');
-export function crossAnalyze({reports=[],progress=[],shipments=[],mappings=[]}){
-  const findings=[];const edges=value=>mappings.filter(m=>m.sourceValue===value||m.targetValue===value).flatMap(m=>[m.sourceValue,m.targetValue]);
-  for(const shipment of shipments.filter(s=>terminalLogistics(`${s.status} ${s.siteArrivalDate?'现场到货':''}`))){const linked=new Set([shipment.installationArea,...edges(shipment.category),...edges(shipment.equipmentName)].filter(Boolean));const work=progress.filter(p=>[p.wbs,p.item].some(v=>linked.has(v)));const delayed=work.filter(p=>p.plannedCumulativePct!=null&&p.actualCumulativePct!=null&&p.actualCumulativePct-p.plannedCumulativePct<=-5);if(delayed.length)findings.push({type:'inference',severity:'high',title:'制约可能已由物流转为土建',facts:[`${shipment.equipmentName} 已到场/现场到货`,...delayed.map(p=>`${p.wbs||p.item} 实际累计 ${p.actualCumulativePct}% / 计划 ${p.plannedCumulativePct}%`)],basis:'设备物流与 WBS/区域映射后的规则判断',confirmation:'需项目团队确认基础是否具备安装条件'});}
-  const latestProgress=analyzeProgress(progress);const recent=[...reports].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,30),stopped=recent.filter(r=>/停工|暂停|无施工/i.test(`${r.status} ${r.constructionContent} ${r.rawRecord}`)),people=latestBy(recent.filter(r=>r.staffScope==='项目总人数'),r=>r.date,'date').sort((a,b)=>a.date.localeCompare(b.date)),headcountDrop=people.length>1&&((people.at(-1).totalStaff??people.at(-1).chineseStaff+people.at(-1).localStaff)<(people.at(-2).totalStaff??people.at(-2).chineseStaff+people.at(-2).localStaff));if(latestProgress.variance!=null&&latestProgress.variance<=-5&&(stopped.length>=2||headcountDrop))findings.push({type:'inference',severity:'high',title:'进度滞后风险升高',facts:[`实际累计较计划偏差 ${latestProgress.variance.toFixed(1)} 个百分点`,stopped.length>=2?`近期日报出现 ${stopped.length} 条明确停工/暂停记录`:'项目总人数较上一期下降'],basis:'独立进度数据与日报状态交叉规则',confirmation:'需核对停工持续性、关键线路及赶工措施'});
+const node=(type,value)=>JSON.stringify([type,text(value)]);
+export function crossAnalyze({reports=[],progress=[],shipments=[],mappings=[],asOf=new Date().toISOString().slice(0,10),projectId='khayrat'}){
+  const sameProject=r=>(r.projectId||r.project_id||'khayrat')===projectId;
+  progress=progress.filter(sameProject);shipments=shipments.filter(sameProject);mappings=mappings.filter(sameProject);reports=reports.filter(sameProject);
+  const findings=[],adj=new Map();
+  for(const m of mappings){const a=node(m.sourceType,m.sourceValue),b=node(m.targetType,m.targetValue);for(const [from,to] of [[a,b],[b,a]]){if(!adj.has(from))adj.set(from,new Set());adj.get(from).add(to);}}
+  const reachable=roots=>{const seen=new Set(roots),queue=[...roots];while(queue.length){for(const next of adj.get(queue.shift())||[])if(!seen.has(next)){seen.add(next);queue.push(next);}}return seen;};
+  const latestProgress=analyzeProgress(progress,{asOf}),current=latestProgress.latest.filter(p=>!p.stale);
+  const arrived=s=>s.siteArrivalDate?s.siteArrivalDate<=asOf:/^(现场到货|已到现场|已到场|site delivered|delivered to site)$/i.test(text(s.status));
+  for(const shipment of shipments.filter(arrived)){
+    const linked=reachable([node('equipment_category',shipment.category),node('equipment_item',shipment.equipmentName),...(shipment.installationArea?[node('installation_area',shipment.installationArea)]:[])]);
+    const delayed=current.filter(p=>(linked.has(node('wbs',p.wbs))||linked.has(node('wbs_item',p.item)))&&Number.isFinite(p.plannedCumulativePct)&&Number.isFinite(p.actualCumulativePct)&&p.actualCumulativePct-p.plannedCumulativePct<=-5);
+    if(delayed.length)findings.push({type:'inference',severity:'high',title:'制约可能已由物流转为土建',facts:[`${shipment.equipmentName} 已到场/现场到货`,...delayed.map(p=>`${p.wbs||p.item} ${p.month} 实际累计 ${p.actualCumulativePct}% / 计划 ${p.plannedCumulativePct}%`)],basis:'设备物流与带类型 Crosswalk 映射后的规则判断',confirmation:'需项目团队确认基础是否具备安装条件'});
+  }
+  const from=new Date(new Date(`${asOf}T00:00:00Z`).getTime()-29*86400000).toISOString().slice(0,10);
+  const recent=reports.filter(r=>r.date>=from&&r.date<=asOf),stopped=recent.filter(r=>/停工|暂停|\bstopped\b|\bsuspended\b/i.test(`${r.status} ${r.constructionContent} ${r.rawRecord}`));
+  const groups=new Map();for(const r of stopped){const k=node(r.workshop,r.process);if(!groups.has(k))groups.set(k,new Set());groups.get(k).add(r.date);}
+  const stoppedDays=Math.max(0,...[...groups.values()].map(s=>s.size));
+  const people=latestBy(recent.filter(r=>r.staffScope==='项目总人数'),r=>r.date,'date').sort((a,b)=>a.date.localeCompare(b.date)),total=r=>r.totalStaff??(r.chineseStaff!=null&&r.localStaff!=null?r.chineseStaff+r.localStaff:null);
+  const headcountDrop=people.length>1&&total(people.at(-1))!=null&&total(people.at(-2))!=null&&total(people.at(-1))<total(people.at(-2));
+  if(latestProgress.variance!=null&&latestProgress.variance<=-5&&(stoppedDays>=2||headcountDrop))findings.push({type:'inference',severity:'high',title:'进度滞后风险升高',facts:[`截至 ${latestProgress.cutoff} 实际累计较计划偏差 ${latestProgress.variance.toFixed(1)} 个百分点`,stoppedDays>=2?`同一活动近期有 ${stoppedDays} 个日报日明确停工/暂停`:'项目总人数较上一期下降'],basis:'独立进度数据与最近30天日报交叉规则',confirmation:'需核对停工持续性、关键线路及赶工措施'});
   return findings;
 }
 
 export function validateHeadcount(record){const total=record.totalStaff??null,components=record.chineseStaff!=null&&record.localStaff!=null?record.chineseStaff+record.localStaff:null;return {total:total??components,reportedTotal:total,components,consistent:total==null||components==null||total===components,needsReview:total!=null&&components!=null&&total!==components};}
+

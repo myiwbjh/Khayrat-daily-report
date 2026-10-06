@@ -12,7 +12,7 @@ The change is additive. Existing `daily_reports`, `image_evidence`, private PDF 
 
 ## Compatibility
 
-IndexedDB upgrades from version 2 to 3 without clearing existing stores. Cloud reads tolerate missing new tables so the deployed application continues to read legacy data before the migration is approved. No existing data is automatically rewritten or deleted.
+IndexedDB uses separate project/user scopes; unscoped legacy stores are retained without automatic reassignment or clearing. Cloud reads tolerate missing new tables so the deployed application continues to read legacy data before the migration is approved. No existing data is automatically rewritten or deleted.
 
 The legacy-logo cleanup action only marks repeated same-position evidence as ignored after user confirmation. It does not delete the evidence row, storage object or source PDF.
 
@@ -20,9 +20,8 @@ The legacy-logo cleanup action only marks repeated same-position evidence as ign
 
 Cross-source findings render four separate fields: original facts, system calculation, AI/rule inference and manual confirmation required. Images never supply headcount, quantity or progress percentages.
 
-## Deployment order
+## Release prerequisites
 
-1. Review and merge application code.
-2. Approve and apply `supabase/migrations/20261005_multi_source_architecture.sql` with the final project-membership RLS policy.
-3. Verify password login and one small CSV import for each new source.
-4. Verify Supabase rows, refresh restoration and S Curve/cross-analysis display.
+Keep PR13 open until the user approves merge. The migration and any production configuration remain separately subject to explicit approval. The migration does not seed memberships or change legacy table policies; the optional Storage boundary is a separate reviewed file. See [PR13 security review](pr13-security-review.md) for the permission model, exact validation boundaries and real acceptance checklist.
+
+Monthly S Curve calculations use month-end observations, a complete WBS denominator, and unknown values for missing/stale actuals. Preview uses existing Supabase RLS, so synthetic tests cannot prove production writes or real login.
