@@ -26,20 +26,38 @@ export function normalizeCrosswalkRows(rows,source='unknown',projectId='khayrat'
 }
 
 const latestBy=(rows,key,dateField)=>{const map=new Map();for(const row of [...rows].sort((a,b)=>String(a[dateField]||'').localeCompare(String(b[dateField]||''))))map.set(key(row),row);return [...map.values()];};
+export function currentProgressRows(rows){
+  const workbook=rows.filter(row=>row.sourceType==='progress-workbook'&&row.snapshotRole==='current');
+  if(!workbook.length)return rows.filter(row=>row.snapshotRole!=='historical-plan');
+  const batches=new Map();for(const row of workbook){const key=row.importBatchId||row.fileHash||row.sourceFile;const stamp=String(row.importedAt||'');if(!batches.has(key)||stamp>batches.get(key))batches.set(key,stamp);}
+  const current=[...batches].sort((a,b)=>a[1].localeCompare(b[1])).at(-1)?.[0];
+  return workbook.filter(row=>(row.importBatchId||row.fileHash||row.sourceFile)===current);
+}
 // A monthly cumulative value is an end-of-month observation, never a day-1 fact.
 export function analyzeProgress(rows,{asOf=new Date().toISOString().slice(0,10)}={}){
-  const valid=rows.filter(r=>monthEnd(r.month)).map(r=>({...r,month:monthEnd(r.month)}));
+  const selected=currentProgressRows(rows),valid=selected.filter(r=>monthEnd(r.month)&&r.isLeaf!==false).map(r=>({...r,month:monthEnd(r.month)}));
   const key=r=>JSON.stringify([r.projectId||'khayrat',r.wbs||r.item]);
   const universe=new Map();for(const r of valid){const k=key(r);if(!universe.has(k))universe.set(k,[]);universe.get(k).push(r);}
-  const weights=new Map(),issues=[];for(const [k,items] of universe){const values=[...new Set(items.map(r=>r.weight).filter(w=>Number.isFinite(w)&&w>0))];if(values.length!==1||items.some(r=>!Number.isFinite(r.weight)||r.weight<=0))issues.push(`weight:${k}`);else weights.set(k,values[0]);}
+  const weights=new Map(),issues=[];for(const [k,items] of universe){const values=[...new Set(items.map(r=>r.weight).filter(w=>Number.isFinite(w)&&w>=0))];if(values.length!==1||items.some(r=>!Number.isFinite(r.weight)||r.weight<0))issues.push(`weight:${k}`);else if(values[0]>0)weights.set(k,values[0]);}
   const totalWeight=[...weights.values()].reduce((a,b)=>a+b,0);
   const aggregate=(items,field,cutoff)=>{const byKey=new Map(items.map(r=>[key(r),r]));let sum=0,coveredWeight=0;for(const [k,w] of weights){const r=byKey.get(k);if(r?.month===cutoff&&Number.isFinite(r[field])&&r[field]>=0&&r[field]<=100){sum+=r[field]*w;coveredWeight+=w;}}
     return {value:!issues.length&&totalWeight>0&&coveredWeight===totalWeight?sum/totalWeight:null,coveredWeight,totalWeight};};
   const currentEnd=monthEnd(asOf),d=new Date(`${currentEnd}T00:00:00Z`),cutoff=asOf>=currentEnd?currentEnd:new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),0)).toISOString().slice(0,10);
   const latest=latestBy(valid.filter(r=>r.month<=cutoff),key,'month');
-  const planned=aggregate(latest,'plannedCumulativePct',cutoff),actual=aggregate(latest,'actualCumulativePct',cutoff);
+  const planned=aggregate(latest,'plannedCumulativePct',cutoff),actual=aggregate(latest,'actualCumulativePct',cutoff),plannedMonthly=aggregate(latest,'plannedMonthlyPct',cutoff),actualMonthly=aggregate(latest,'actualMonthlyPct',cutoff);
   const timeline=[...new Set(valid.map(r=>r.month))].sort().map(month=>{const items=latestBy(valid.filter(r=>r.month<=month),key,'month');return {month,planned:aggregate(items,'plannedCumulativePct',month).value,actual:month<=cutoff?aggregate(items,'actualCumulativePct',month).value:null};});
-  return {planned:planned.value,actual:actual.value,variance:planned.value!=null&&actual.value!=null?actual.value-planned.value:null,timeline,latest:latest.map(r=>({...r,stale:r.month!==cutoff})),cutoff,totalWeight,coverage:{planned,actual},issues};
+  return {planned:planned.value,actual:actual.value,variance:planned.value!=null&&actual.value!=null?actual.value-planned.value:null,plannedMonthly:plannedMonthly.value,actualMonthly:actualMonthly.value,timeline,latest:latest.map(r=>({...r,stale:r.month!==cutoff})),cutoff,totalWeight,coverage:{planned,actual,plannedMonthly,actualMonthly},issues,selected};
+}
+
+export function summarizeProgress(rows,options={}){
+  const analysis=analyzeProgress(rows,options),current=analysis.latest.filter(row=>!row.stale),disciplines=[];
+  const names=[...new Set(current.map(row=>row.discipline||'未分类'))];
+  for(const name of names){const items=current.filter(row=>(row.discipline||'未分类')===name),weight=items.reduce((sum,row)=>sum+(Number.isFinite(row.weight)?row.weight:0),0),weighted=field=>weight?items.reduce((sum,row)=>sum+(Number.isFinite(row[field])?row[field]*row.weight:0),0)/weight:null;disciplines.push({name,weight,plannedCompletion:weighted('plannedCumulativePct'),actualCompletion:weighted('actualCumulativePct'),contributionToProject:analysis.totalWeight?items.reduce((sum,row)=>sum+(Number.isFinite(row.actualCumulativePct)?row.actualCumulativePct*row.weight:0),0)/analysis.totalWeight:null});}
+  const lagging=current.filter(row=>Number.isFinite(row.plannedCumulativePct)&&Number.isFinite(row.actualCumulativePct)).map(row=>({...row,variance:row.actualCumulativePct-row.plannedCumulativePct,contributionToProject:analysis.totalWeight?row.actualCumulativePct*row.weight/analysis.totalWeight:null})).sort((a,b)=>a.variance-b.variance).slice(0,8);
+  const workbook=currentProgressRows(rows),currentBatch=workbook[0]?.importBatchId||'',batches=[...new Map(rows.filter(row=>row.sourceType==='progress-workbook'&&row.snapshotRole==='current').map(row=>[row.importBatchId,{id:row.importBatchId,importedAt:row.importedAt,fileHash:row.fileHash,sourceFile:row.sourceFile}])).values()].sort((a,b)=>String(a.importedAt).localeCompare(String(b.importedAt))),previousBatch=batches.length>1?batches.at(-2):null;
+  const snapshot=batch=>new Map(rows.filter(row=>row.importBatchId===batch&&row.snapshotRole==='current').map(row=>[`${row.wbs}|${row.month}`,row]));let versionDiff=null;
+  if(previousBatch){const before=snapshot(previousBatch.id),after=snapshot(currentBatch),quantityAdjusted=new Set(),weightAdjusted=new Set(),planAdjusted=new Set();let actualChange=null;for(const [key,row] of after){const old=before.get(key);if(!old)continue;if(row.baselineTotal!==old.baselineTotal)quantityAdjusted.add(row.wbs);if(row.weight!==old.weight)weightAdjusted.add(row.wbs);if(row.plannedMonthlyQuantity!==old.plannedMonthlyQuantity)planAdjusted.add(row.wbs);}const previous=analyzeProgress(rows.filter(row=>row.importBatchId===previousBatch.id),options);if(previous.actual!=null&&analysis.actual!=null)actualChange=analysis.actual-previous.actual;versionDiff={previous:previousBatch,current:batches.at(-1),quantityAdjusted:[...quantityAdjusted],weightAdjusted:[...weightAdjusted],planAdjusted:[...planAdjusted],actualChange};}
+  return {...analysis,disciplines,lagging,versionDiff,currentBatch,qualityIssues:[...new Map(workbook.filter(row=>row.quantityMismatch).map(row=>[row.wbs,{wbs:row.wbs,item:row.item,baselineTotal:row.baselineTotal,trackingTotal:row.trackingTotal,unit:row.unit,status:'To Be Verified'}])).values()]};
 }
 
 const node=(type,value)=>JSON.stringify([type,text(value)]);
@@ -67,4 +85,3 @@ export function crossAnalyze({reports=[],progress=[],shipments=[],mappings=[],as
 }
 
 export function validateHeadcount(record){const total=record.totalStaff??null,components=record.chineseStaff!=null&&record.localStaff!=null?record.chineseStaff+record.localStaff:null;return {total:total??components,reportedTotal:total,components,consistent:total==null||components==null||total===components,needsReview:total!=null&&components!=null&&total!==components};}
-

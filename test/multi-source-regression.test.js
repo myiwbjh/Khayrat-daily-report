@@ -28,7 +28,7 @@ test('typed graph allows reverse and multi-hop matches while excluding same text
  assert.equal(crossAnalyze({progress:p,shipments:s,mappings:valid.map(x=>({...x,projectId:'other'})),asOf:'2026-10-06'}).length,0);
 });
 test('cloud loads each table with its own primary key and only degrades confirmed missing tables',async()=>{
- const calls=[],repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public',projectId:'other'},{accessToken:'jwt',fetchImpl:async url=>{calls.push(new URL(url));return {ok:true,json:async()=>[]};}});await repo.loadProject();assert.equal(calls.length,5);for(const url of calls){assert.equal(url.searchParams.get('project_id'),'eq.other');assert.equal(url.searchParams.get('order'),url.pathname.endsWith('image_evidence')?'image_id':'id');}
+ const calls=[],repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public',projectId:'other'},{accessToken:'jwt',fetchImpl:async url=>{calls.push(new URL(url));return {ok:true,json:async()=>[]};}});await repo.loadProject();assert.equal(calls.length,6);for(const url of calls){assert.equal(url.searchParams.get('project_id'),'eq.other');assert.equal(url.searchParams.get('order'),url.pathname.endsWith('image_evidence')?'image_id':'id');}
  repo.fetch=async url=>url.includes('progress_measurements')?{ok:false,status:404,json:async()=>({code:'PGRST205',message:'public.progress_measurements does not exist'})}:{ok:true,json:async()=>[]};assert.deepEqual((await repo.loadProject()).unavailableTables,['progress_measurements']);
  for(const status of [401,403,404,500]){repo.fetch=async()=>({ok:false,status,json:async()=>({message:'failure'})});await assert.rejects(()=>repo.loadProject(),new RegExp(String(status)));}
 });

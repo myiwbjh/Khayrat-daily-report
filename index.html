@@ -76,7 +76,7 @@
         <section class="kpis">
           <article><span>WBS 加权计划进度</span><b id="plannedKpi">—</b><small id="plannedNote">无权重时不计算总体值</small></article>
           <article><span>WBS 加权实际进度</span><b id="actualKpi">—</b><small id="varianceNote">无权重时展示分项统计</small></article>
-          <article><span>当期 / 累计完成量</span><b id="concreteKpi">—</b><small id="concreteNote">按导入单位统计</small></article>
+          <article><span>本期计划 / 实际进度</span><b id="concreteKpi">—</b><small id="concreteNote">工程量 WBS 基准口径</small></article>
           <article><span>现场人员</span><b id="peopleKpi">—</b><small id="peopleNote">中方 — · 属地 —</small></article>
           <article class="alert-kpi"><span>连续停工预警</span><b id="stoppageKpi">—</b><small>连续 3 个有效日报日</small></article>
           <article><span>照片证据识别</span><b id="photoKpi">—</b><small id="photoNote">已识别 / 有效照片</small></article>
@@ -176,10 +176,16 @@
       <section class="panel project-data-panel" id="projectData">
         <div class="panel-title"><div><h2>多类数据源与交叉分析</h2><p>日报、WBS 进度、设备物流分别保存，通过 Crosswalk 多对多关联。</p></div></div>
         <div class="data-source-grid">
-          <article><h3>进度 / 工程量</h3><p>Excel / CSV；用于总体 S Curve 与计划偏差。</p><button id="progressImportButton" class="primary">导入进度数据</button><button data-template="progress" class="outline">下载模板</button><input id="progressInput" type="file" accept=".csv,.xlsx" hidden><b id="progressCount">0 条</b></article>
+          <article><h3>进度 / 工程量</h3><p>直接读取项目现有 Excel，识别当前计划、历史计划、WBS、工程量和月度实绩。</p><button id="progressImportButton" class="primary">上传工程量 Excel</button><input id="progressInput" type="file" accept=".csv,.xlsx" hidden><b id="progressCount">0 条</b></article>
           <article><h3>设备 / 发货</h3><p>设备类别 → Package/Lot → 发运批次 → 设备。</p><button id="shipmentImportButton" class="primary">导入设备物流</button><button data-template="shipments" class="outline">下载模板</button><input id="shipmentInput" type="file" accept=".csv,.xlsx" hidden><b id="shipmentCount">0 条</b></article>
           <article><h3>Crosswalk / Mapping</h3><p>连接日报车间/工序、WBS、设备类别和安装区域。</p><button id="mappingImportButton" class="primary">导入映射</button><button data-template="mappings" class="outline">下载模板</button><input id="mappingInput" type="file" accept=".csv,.xlsx" hidden><b id="mappingCount">0 条</b></article>
         </div>
+        <section class="progress-source-dashboard">
+          <div id="progressVersionSummary" class="progress-version-summary"><span>尚未导入工程量/WBS 数据</span></div>
+          <p id="progressQuality" class="progress-quality"></p>
+          <div><h3>专业进度</h3><p class="metric-explainer"><b>Discipline Completion</b> 是专业内部完成率；<b>Contribution to Project</b> 是该专业对项目总体进度的贡献，二者不可混用。</p><div id="disciplineProgress" class="discipline-progress"></div></div>
+          <div><h3>主要滞后 WBS</h3><div class="table-scroll"><table><thead><tr><th>WBS</th><th>计划累计</th><th>实际累计</th><th>偏差</th><th>项目贡献</th></tr></thead><tbody id="laggingWbsRows"></tbody></table></div></div>
+        </section>
         <div id="crossAnalysis" class="cross-analysis"></div>
       </section>
       <footer>KHAYRAT 3,200 TPD CEMENT GRINDING PLANT · SAMAWAH, IRAQ <span>云端配置可见 · 上传需授权</span></footer>

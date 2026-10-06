@@ -2,7 +2,7 @@ import {createAuthSession} from './src/auth.js';
 import {compareReports} from './src/comparison.js';
 import {evidenceOf,withProvenance} from './src/report-model.js';
 import { analyzeRecords, parseCSV, normalizeRows, filterRecords, exportCSV, SAMPLE_RECORDS } from './src/analytics.js';
-import { parseXLSX } from './src/xlsx.js';
+import { parseXLSX,parseKhayratProgressWorkbook } from './src/xlsx.js';
 import { ReportStore, EvidenceStore, businessKey } from './src/storage.js';
 import { createTemplateXLSX } from './src/xlsx-writer.js';
 import { parsePDFDocument } from './src/pdf.js';
@@ -11,7 +11,7 @@ import { waitForVisionSlot } from './src/vision-pacing.js';
 import { ProjectDatabase } from './src/database.js';
 import { loadCloudConfig, SupabaseCloudRepository } from './src/cloud.js';
 import { OCRProvider } from './src/pdfjs-adapter.js';
-import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analyzeProgress,crossAnalyze,PROGRESS_HEADERS,SHIPMENT_HEADERS,CROSSWALK_HEADERS} from './src/project-data.js';
+import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analyzeProgress,summarizeProgress,currentProgressRows,crossAnalyze,PROGRESS_HEADERS,SHIPMENT_HEADERS,CROSSWALK_HEADERS} from './src/project-data.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -161,12 +161,12 @@ function render() {
   if (!records.length && !progressRecords.length) return;
   const a = analyzeRecords(filtered, period);
   const photo=summarizeImageEvidence(evidenceStore.all(),{date:$('#dateFilter').value,workshop:$('#workshopFilter').value,process:$('#processFilter').value});
-  const projectProgress=analyzeProgress(progressRecords,{asOf:progressCutoff()}),hasProjectProgress=progressRecords.length>0;
+  const projectProgress=summarizeProgress(progressRecords,{asOf:progressCutoff()}),hasProjectProgress=projectProgress.selected.length>0;
   $('#plannedKpi').textContent = pct(hasProjectProgress?projectProgress.planned:a.kpis.planned); $('#actualKpi').textContent = pct(hasProjectProgress?projectProgress.actual:a.kpis.actual);
-  $('#plannedNote').textContent = hasProjectProgress?`月末口径 · 截至 ${projectProgress.cutoff}${projectProgress.actual==null?' · 数据缺失/过期待复核':''}`:a.latestDate?`截至 ${a.latestDate}`:'等待数据';
+  $('#plannedNote').textContent = hasProjectProgress?`${projectProgress.selected[0]?.planVersion||'WBS'} · 月末口径 · 截至 ${projectProgress.cutoff}${projectProgress.actual==null?' · 数据缺失/过期待复核':''}`:a.latestDate?`截至 ${a.latestDate}`:'等待数据';
   const projectVariance=hasProjectProgress?projectProgress.variance:a.kpis.variance;$('#varianceNote').textContent = projectVariance == null ? '缺少计划或实际值' : `计划偏差 ${delta(projectVariance)}${hasProjectProgress?' · 来源：进度/WBS':''}`;
-  $('#concreteKpi').textContent = a.quantityGroups.length === 0 ? '—' : a.quantityGroups.length === 1 ? `${a.quantityGroups[0].daily?.toFixed(2) ?? '—'} / ${Number.isFinite(a.quantityGroups[0].cumulative)?a.quantityGroups[0].cumulative.toFixed(2):'—'}` : `${a.quantityGroups.length} 组`;
-  $('#concreteNote').textContent = a.quantityGroups.length === 1 ? `${a.quantityGroups[0].workshop} · ${a.quantityGroups[0].unit}` : a.quantityGroups.length > 1 ? '按车间、工序和单位分别统计' : '暂无工程量数据';
+  $('#concreteKpi').textContent = hasProjectProgress?`${pct(projectProgress.plannedMonthly)} / ${pct(projectProgress.actualMonthly)}`:a.quantityGroups.length === 0 ? '—' : a.quantityGroups.length === 1 ? `${a.quantityGroups[0].daily?.toFixed(2) ?? '—'} / ${Number.isFinite(a.quantityGroups[0].cumulative)?a.quantityGroups[0].cumulative.toFixed(2):'—'}` : `${a.quantityGroups.length} 组`;
+  $('#concreteNote').textContent = hasProjectProgress?'本期计划 / 实际完成率 · WBS 基准口径':a.quantityGroups.length === 1 ? `${a.quantityGroups[0].workshop} · ${a.quantityGroups[0].unit}` : a.quantityGroups.length > 1 ? '按车间、工序和单位分别统计' : '暂无工程量数据';
   $('#peopleKpi').textContent = a.kpis.totalStaff ?? '—'; $('#peopleNote').textContent = `中方 ${a.kpis.chineseStaff ?? '—'} · 属地 ${a.kpis.localStaff ?? '—'} · 较上期 ${a.kpis.staffDelta == null ? '—' : (a.kpis.staffDelta >= 0 ? '+' : '') + a.kpis.staffDelta}${a.kpis.staffNeedsReview?' · ⚠ 合计不一致，待复核':''}`;
   $('#stoppageKpi').textContent = a.stoppages.length;
   $('#photoKpi').textContent = `${photo.analyzed}/${photo.total}`;$('#photoNote').textContent=`已识别 / 有效照片 · ${photo.linked} 张已关联 · ${photo.review} 张待复核`;
@@ -181,7 +181,12 @@ function render() {
 }
 
 function renderProjectData(){
-  $('#progressCount').textContent=`${progressRecords.length} 条`;$('#shipmentCount').textContent=`${shipmentRecords.length} 条`;$('#mappingCount').textContent=`${crosswalkMappings.length} 条`;
+  const summary=summarizeProgress(progressRecords,{asOf:progressCutoff()}),current=currentProgressRows(progressRecords),wbsCount=new Set(current.map(row=>row.wbs)).size,batchCount=new Set(progressRecords.filter(row=>row.importBatchId).map(row=>row.importBatchId)).size,meta=current.find(row=>row.workbookMeta)?.workbookMeta;
+  $('#progressCount').textContent=current.some(row=>row.sourceType==='progress-workbook')?`${wbsCount} 个 WBS · ${batchCount} 个快照`:`${current.length} 条`;$('#shipmentCount').textContent=`${shipmentRecords.length} 条`;$('#mappingCount').textContent=`${crosswalkMappings.length} 条`;
+  $('#progressVersionSummary').innerHTML=current.length?`<b>${escapeHTML(current[0]?.planVersion||'自定义版本')}</b><span>当前计划：${pct(summary.planned)}　当前实际：${pct(summary.actual)}　偏差：${delta(summary.variance)}</span><small>${meta?`Sheet：${escapeHTML(meta.batch.currentPlanSheet)} / ${escapeHTML(meta.batch.actualSheet)} · Hash ${escapeHTML(meta.batch.fileHash.slice(0,12))}… · ${escapeHTML(meta.batch.qualityStatus)}`:'标准化 WBS 数据'}</small>${summary.versionDiff?`<small>较上次上传：实际 ${delta(summary.versionDiff.actualChange)}；总量调整 ${summary.versionDiff.quantityAdjusted.length} 项，权重调整 ${summary.versionDiff.weightAdjusted.length} 项，计划调整 ${summary.versionDiff.planAdjusted.length} 项。</small>`:meta?.planComparison?.from?`<small>文件内 ${escapeHTML(meta.planComparison.from)} → ${escapeHTML(meta.planComparison.to)}：总量调整 ${meta.planComparison.quantityAdjusted.length} 项，权重调整 ${meta.planComparison.weightAdjusted.length} 项，计划调整 ${meta.planComparison.scheduleAdjusted.length} 项。</small>`:'<small>首个导入快照，暂无上次上传版本可比较。</small>'}`:'<span>尚未导入工程量/WBS 数据</span>';
+  $('#disciplineProgress').innerHTML=summary.disciplines.map(item=>`<article><b>${escapeHTML(item.name)}</b><span>专业完成率 ${pct(item.actualCompletion)}</span><small>Contribution to Project ${pct(item.contributionToProject)} · 计划 ${pct(item.plannedCompletion)}</small></article>`).join('')||'<p class="mini-empty">暂无专业进度</p>';
+  $('#laggingWbsRows').innerHTML=summary.lagging.map(row=>`<tr><td><b>${escapeHTML(row.wbs)} ${escapeHTML(row.item)}</b><small>${escapeHTML(row.discipline||'未分类')}</small></td><td>${pct(row.plannedCumulativePct)}</td><td>${pct(row.actualCumulativePct)}</td><td class="negative">${delta(row.variance)}</td><td>${pct(row.contributionToProject)}</td></tr>`).join('')||'<tr><td colspan="5" class="mini-empty">暂无可比 WBS</td></tr>';
+  $('#progressQuality').innerHTML=summary.qualityIssues.length?`<b>To Be Verified</b>：${summary.qualityIssues.map(item=>`${escapeHTML(item.wbs)} ${escapeHTML(item.item)}（计划基准 ${item.baselineTotal} ${escapeHTML(item.unit)} / 实际跟踪 ${item.trackingTotal} ${escapeHTML(item.unit)}）`).join('；')}`:current.length?'基准总量与实际跟踪总量一致。':'';
   const findings=crossAnalyze({reports:records,progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings,projectId,asOf:progressCutoff()});
   $('#crossAnalysis').innerHTML=findings.length?`<h3>交叉判断</h3>${findings.map(f=>`<article class="cross-finding"><span class="evidence-label">AI 推断 · ${escapeHTML(f.severity)}</span><h3>${escapeHTML(f.title)}</h3><p><b>原始事实：</b>${f.facts.map(escapeHTML).join('；')}</p><p><b>系统计算：</b>${escapeHTML(f.basis)}</p><p><b>待人工确认：</b>${escapeHTML(f.confirmation)}</p></article>`).join('')}`:'<p class="mini-empty">当前没有满足交叉预警规则的组合；原始事实、系统计算、AI 推断与待确认项会分开展示。</p>';
 }
@@ -189,7 +194,12 @@ function renderProjectData(){
 async function rowsFromFile(file){const ext=file.name.split('.').pop().toLowerCase();if(ext==='csv')return parseCSV(await file.text());if(ext==='xlsx')return parseXLSX(await file.arrayBuffer());throw new Error('仅支持 CSV / XLSX');}
 async function importProjectData(type,file){
   if(!file)return;const normalizers={progress:normalizeProgressRows,shipments:normalizeShipmentRows,mappings:normalizeCrosswalkRows},current={progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings};
-  try{if(cloud?.configured&&!cloud.token)throw new Error('请先登录，再导入需要保存到云端的项目数据');await scopeReady;const version=scopeVersion,repo=cloud;const rows=normalizers[type](await rowsFromFile(file),file.name,projectId);if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');if(!rows.length)throw new Error('没有识别到有效数据，请核对模板列名');const merged=[...new Map([...current[type],...rows].map(row=>[row.id,row])).values()];if(repo?.configured)await repo.saveProjectData(type,rows,{sourceFile:file.name});if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');await database.replaceProjectData(type,merged);if(type==='progress')progressRecords=merged;else if(type==='shipments')shipmentRecords=merged;else crosswalkMappings=merged;render();toast(`已导入 ${rows.length} 条${type==='progress'?'进度/WBS':type==='shipments'?'设备物流':'映射'}数据`);}catch(error){toast(error.message,true);}finally{$(`#${type==='progress'?'progress':type==='shipments'?'shipment':'mapping'}Input`).value='';}
+  try{if(cloud?.configured&&!cloud.token)throw new Error('请先登录，再导入需要保存到云端的项目数据');await scopeReady;const version=scopeVersion,repo=cloud;
+    if(type==='progress'&&/\.xlsx$/i.test(file.name)){
+      let parsed;try{const buffer=await file.arrayBuffer();parsed=await parseKhayratProgressWorkbook(buffer,file.name,projectId);}catch(error){if(!/未识别到/.test(error.message))throw error;parsed=null;}
+      if(parsed){if(progressRecords.some(row=>row.fileHash===parsed.batch.fileHash)){toast('该工程量文件已导入，Hash 相同，未生成重复数据');return;}if(repo?.configured){const saved=await repo.saveProgressWorkbook(file,parsed);if(saved.duplicate){toast('该工程量文件已存在于云端，未生成重复数据');return;}}else{await database.saveOriginals([file],parsed.batch.id);await database.addImport({importId:parsed.batch.id,createdAt:parsed.batch.importedAt,files:[file.name],type:'progress-workbook',fileHash:parsed.batch.fileHash,status:'complete'});}if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');const merged=[...new Map([...progressRecords,...parsed.records].map(row=>[row.id,row])).values()];await database.replaceProjectData('progress',merged);progressRecords=merged;render();toast(`已解析 ${new Set(parsed.currentRecords.map(row=>row.wbs)).size} 个 WBS；当前计划 ${parsed.batch.currentPlanVersion}，历史版本已保留`);return;}
+    }
+    const rows=normalizers[type](await rowsFromFile(file),file.name,projectId);if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');if(!rows.length)throw new Error('没有识别到有效数据，请核对列名');const merged=[...new Map([...current[type],...rows].map(row=>[row.id,row])).values()];if(repo?.configured)await repo.saveProjectData(type,rows,{sourceFile:file.name});if(version!==scopeVersion)throw new Error('登录身份已改变，请重新导入');await database.replaceProjectData(type,merged);if(type==='progress')progressRecords=merged;else if(type==='shipments')shipmentRecords=merged;else crosswalkMappings=merged;render();toast(`已导入 ${rows.length} 条${type==='progress'?'进度/WBS':type==='shipments'?'设备物流':'映射'}数据`);}catch(error){toast(error.message,true);}finally{$(`#${type==='progress'?'progress':type==='shipments'?'shipment':'mapping'}Input`).value='';}
 }
 $('#progressImportButton').onclick=()=>$('#progressInput').click();$('#shipmentImportButton').onclick=()=>$('#shipmentInput').click();$('#mappingImportButton').onclick=()=>$('#mappingInput').click();
 $('#progressInput').onchange=e=>importProjectData('progress',e.target.files[0]);$('#shipmentInput').onchange=e=>importProjectData('shipments',e.target.files[0]);$('#mappingInput').onchange=e=>importProjectData('mappings',e.target.files[0]);
