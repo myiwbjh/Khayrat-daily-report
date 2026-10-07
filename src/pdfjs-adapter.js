@@ -102,7 +102,7 @@ export async function parseWithPDFJS(
           warnings.push(`第 ${n} 页布局提取失败：${error.message}`);
         }
     }
-    const decorativeImages=markDecorativeImages(pages), date = documentDate(pages);
+    let decorativeImages=0;const date = documentDate(pages);
     for (let i = 0; i < pages.length; i++) {
       const entry = pages[i],
         { page } = handles[i],
@@ -157,7 +157,7 @@ export async function parseWithPDFJS(
         process: record.process,
         excerpt: record.sourceExcerpt,
       }));
-      const placements = entry.imagePlacements.filter((im) => !im.decorative);
+      const placements = entry.imagePlacements;
       for (const group of figureGroups(placements))
         try {
           const decoded = [];
@@ -217,6 +217,8 @@ export async function parseWithPDFJS(
             mimeType: "image/png",
             dataUrl,
             bbox: group.bbox,
+            pageWidth: entry.width,
+            pageHeight: entry.height,
             components: group.parts.map(({ inline, ...p }) => p),
             nearbyText,
             sourceExcerpt: nearbyText,
@@ -251,6 +253,8 @@ export async function parseWithPDFJS(
         }
       page.cleanup?.();
     }
+    decorativeImages=markDecorativeImages(pages.map(page=>({...page,imagePlacements:images.filter(image=>image.pageNumber===page.pageNumber)})));
+    if(decorativeImages){const retained=images.filter(image=>!image.decorative);images.splice(0,images.length,...retained);}
     const documentLayout = pages.map((p) => ({
       pageNumber: p.pageNumber,
       width: p.width,
