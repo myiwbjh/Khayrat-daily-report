@@ -78,4 +78,4 @@ Gemini 免费条款允许 API 应用使用，但免费输入/输出可能用于�
 
 补充发现：原有日报“删除”只移除本机缓存，尚无云端删除流程；本次没有将其扩展为生产数据删除。
 
-Preview READY；经受保护访问核验 `/view` 返回 200，缺少服务密钥时 `/api/public-dashboard` 返回 503。GitHub Actions 原始 PDF 完整回归仍排队，不能宣称 CI 已通过。Supabase CLI 创建 migration 后的遥测被自动审批拒绝，因此没有重试该遥测请求；后续采用本地 PostgreSQL 验证。
+Preview READY；经受保护访问核验 `/view` 返回 200，缺少服务密钥时 `/api/public-dashboard` 返回 503。GitHub Actions run 37642761516（commit b905f20）已通过 Unit、Build、语法检查及使用仓库原始 PDF 的完整浏览器回归。Supabase CLI 创建 migration 后的遥测被自动审批拒绝，因此没有重试该遥测请求；后续采用本地 PostgreSQL 验证。
