@@ -12,3 +12,5 @@ test('full public output allowlists all business domains and preserves WBS selec
  for(const word of ['private','secret','provenance','originalObjectPath','sourceFile','apiKey'])assert.ok(!JSON.stringify(output).includes(word),word);
 });
 test('public dashboard rejects mutation before database access',async()=>{const response={setHeader(){},status(code){this.code=code;return this;},json(body){this.body=body;}};await publicHandler({method:'POST'},response);assert.equal(response.code,405);});
+
+test('undated reports remain visible for review while dated analytics stays safe',()=>{const p=publicProjection([{date:'',constructionContent:'待核施工记录',needsReview:true,reviewFields:['date']}],[],[]);assert.equal(p.reports.length,1);assert.equal(p.reports[0].needsReview,true);assert.equal(p.workshops.length,0);});
