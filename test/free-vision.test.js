@@ -58,7 +58,7 @@ test('Groq request uses only fixed endpoint, paired excerpt, server key and JSON
 });
 test('free quota exhaustion stops after one request without paid fallback or automatic retry; malformed outputs rejected', async () => {
   let calls=0;
-  await assert.rejects(()=>visionImage('', '', VISION_SCHEMA,{env,fetchImpl:async()=>{calls++;return response({error:'do not expose upstream secret'},429);}}),e=>e.status===429&&/不会自动切换付费/.test(e.message));
+  await assert.rejects(()=>visionImage('', '', VISION_SCHEMA,{env,fetchImpl:async()=>{calls++;return response({error:'do not expose upstream secret'},429);}}),e=>e.status===429&&/未产生付费调用/.test(e.message));
   assert.equal(calls,1);
   for(const invalid of [{...result,confidence:3},{...result,visibleFacts:'invented'},{...result,scene:'停工'},{}])
     await assert.rejects(()=>visionImage('', '', VISION_SCHEMA,{env,fetchImpl:async()=>completion(invalid)}),e=>e.status===502);
@@ -76,12 +76,14 @@ test('free API still verifies actual Supabase identity, RLS row and private obje
     const calls=[];globalThis.fetch=async(url,options)=>{
       calls.push(url);
       if(url.endsWith('/auth/v1/user'))return response({id:'qa',email:'qa@example.test',email_confirmed_at:'2026-01-01'});
+      if(url.includes('project_members'))return response([{role:'editor',is_admin:false}]);
+      if(url.includes('vision_runs'))return response(options.method==='POST'?[{state:'running'}]:[]);
       if(url.includes('/rest/')){assert.equal(options.headers.Authorization,'Bearer user-token');return response([{payload:{objectPath:'khayrat/batch/i1.png',sourceExcerpt:'唯一配对原文'}}]);}
       if(url.includes('/storage/')){assert.equal(options.headers.Authorization,'Bearer user-token');return new Response('test-pixels',{headers:{'Content-Type':'image/png'}});}
       assert.equal(url,'https://api.groq.com/openai/v1/chat/completions');return completion(result);
     };
     const res=sink();await visionHandler({method:'POST',headers:{authorization:'Bearer user-token'},body:{imageId:'i1',consent:true,provider:'groq',imageDataUrl:'https://evil.test/ignored'}},res);
-    assert.equal(res.code,200);assert.equal(calls.length,4);assert.equal(res.value.textFacts,'唯一配对原文');assert.equal(res.value.provider,'Groq');
+    assert.equal(res.code,200);assert.equal(calls.length,8);assert.equal(res.value.textFacts,'唯一配对原文');assert.equal(res.value.provider,'Groq');
     calls.length=0;globalThis.fetch=async url=>{calls.push(url);return response({},401);};
     const denied=sink();await visionHandler({method:'POST',headers:{authorization:'Bearer forged'},body:{imageId:'i1',consent:true,provider:'groq'}},denied);
     assert.equal(denied.code,401);assert.equal(calls.length,1);assert.match(calls[0],/auth\/v1\/user/);
@@ -100,3 +102,4 @@ test('stop cancels a pending free-rate interval immediately, and no-wait path ob
   await assert.rejects(pending,/已停止/);await assert.rejects(()=>waitForVisionSlot(0,controller.signal),/已停止/);
   await waitForVisionSlot(0,new AbortController().signal);
 });
+

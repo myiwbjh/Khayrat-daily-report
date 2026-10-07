@@ -118,12 +118,12 @@ test("verified but unconfirmed, disallowed or missing-allowlist user is denied",
     () =>
       authorizeAI(request, {
         env: { ...env, AI_ALLOWED_USER_EMAILS: "" },
-        fetchImpl: async () => response(user),
+        fetchImpl: async url => response(url.includes("project_members")?[{role:"editor",is_admin:false}]:user),
       }),
     (e) => e.status === 403,
   );
   assert.equal(
-    (await authorizeAI(request, { env, fetchImpl: async () => response(user) }))
+    (await authorizeAI(request, { env, fetchImpl: async url => response(url.includes("project_members")?[{role:"editor",is_admin:false}]:user) }))
       .user.id,
     "user1",
   );
@@ -158,7 +158,7 @@ test("images must be actual allowed base64 data, never user supplied remote URL 
 test("vision reads image row AND private storage using caller JWT; no service-role bypass", async () => {
   const auth = await authorizeAI(request, {
       env,
-      fetchImpl: async () => response(user),
+      fetchImpl: async url => response(url.includes("project_members")?[{role:"editor",is_admin:false}]:user),
     }),
     calls = [];
   const stored = await storedImage("image-1", auth, {
@@ -354,6 +354,8 @@ test("approved vision API authenticates, checks row and private storage before m
     globalThis.fetch = async (url, options) => {
       calls.push(url);
       if (url.endsWith("/auth/v1/user")) return response(user);
+      if(url.includes("project_members"))return response([{role:"editor",is_admin:false}]);
+      if(url.includes("vision_runs"))return response(options.method==="POST"?[{state:"running"}]:[]);
       if (url.includes("/rest/"))
         return response([
           {
@@ -399,7 +401,7 @@ test("approved vision API authenticates, checks row and private storage before m
     assert.equal(r.value.textFacts, "绑定原文");
     assert.equal(r.value.reviewRecommended, true);
     assert.equal(r.value.model, MODEL);
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 8);
     assert.ok(!JSON.stringify(r.value).includes(env.OPENAI_API_KEY));
   } finally {
     for (const key of Object.keys(process.env))
@@ -408,3 +410,4 @@ test("approved vision API authenticates, checks row and private storage before m
     globalThis.fetch = oldFetch;
   }
 });
+

@@ -9,7 +9,8 @@ async function sandbox(page){
  if(url.pathname==='/auth/v1/token'){const email=req.postDataJSON().email;state.user=users.find(u=>u.email===email)||state.user;return route.fulfill({json:session(state.user)});}
  if(url.pathname==='/auth/v1/user')return route.fulfill({json:state.user});if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
  if(url.pathname.startsWith('/storage/v1/object/')){state.objects.push(url.pathname);return route.fulfill({json:{Key:url.pathname}});}
- if(url.pathname.startsWith('/rest/v1/')){const table=url.pathname.split('/').at(-1);if(!state.tables[table])return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});
+ if(url.pathname==='/rest/v1/project_members')return route.fulfill({json:[{role:state.user.id===users[0].id?'editor':'reader',is_admin:false}]});
+  if(url.pathname.startsWith('/rest/v1/')){const table=url.pathname.split('/').at(-1);if(!state.tables[table])return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});
  const isNew=['progress_measurements','progress_import_batches','equipment_shipments','crosswalk_mappings'].includes(table);
  if(isNew&&state.denied)return route.fulfill({status:403,json:{code:'42501',message:'permission denied'}});
  if(isNew&&state.missing)return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});
@@ -57,3 +58,4 @@ test('an importing batch resumes after audit failure and does not duplicate WBS 
  await page.locator('#progressInput').setInputFiles(file);await expect(page.locator('#toast')).toContainText('22P02');expect(state.tables.progress_import_batches).toHaveLength(1);expect(state.tables.progress_import_batches[0].import_status).toBe('importing');expect(state.tables.progress_measurements).toHaveLength(532);expect(state.tables.import_audits).toHaveLength(0);
  await page.locator('#progressInput').setInputFiles(file);await expect(page.locator('#progressCount')).toHaveText('19 个 WBS · 1 个快照');expect(state.tables.progress_import_batches).toHaveLength(1);expect(state.tables.progress_import_batches[0].import_status).toBe('complete');expect(state.tables.progress_import_batches[0].current_version).toBe(true);expect(state.tables.progress_measurements).toHaveLength(532);expect(new Set(state.tables.progress_measurements.map(row=>row.id)).size).toBe(532);expect(state.tables.import_audits).toHaveLength(1);expect(state.tables.import_audits[0].result.progressBatchId).toBe(state.tables.progress_import_batches[0].id);
 });
+

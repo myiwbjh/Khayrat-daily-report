@@ -1,3 +1,4 @@
+import {runVisionOnce} from '../server/vision-runs.js';
 import { parseBody, requireConsent, authorizeAI } from "../server/ai-auth.js";
 import {
   storedImage,
@@ -5,7 +6,7 @@ import {
   VISION_SCHEMA,
   validateVision,
 } from "../server/vision-service.js";
-import { requireProviderConsent } from '../server/vision-provider.js';
+import { requireChainConsent } from '../server/vision-provider.js';
 export default async function handler(request, response) {
   response.setHeader("Cache-Control", "no-store");
   if (request.method !== "POST")
@@ -13,10 +14,14 @@ export default async function handler(request, response) {
   try {
     const body = parseBody(request.body);
     requireConsent(body);
-    requireProviderConsent(body);
+    requireChainConsent(body);
     const auth = await authorizeAI(request),
       image = await storedImage(body.imageId, auth),
-      analysis = await visionImage(image.dataUrl, image.context, VISION_SCHEMA);
+      analysis = await runVisionOnce(body.imageId,auth,()=>{
+        const previous=image.evidence.automaticAnalysis;
+        if(image.evidence.visionEnabled&&previous){const result={scene:previous.scene,visibleFacts:previous.visibleFacts,activities:previous.activities||[],equipment:previous.equipment||previous.tags||[],materials:previous.materials||[],structures:previous.structures||[],stage:previous.stage||'无法判断',inferences:previous.inferences||[],limitations:previous.limitations||[],summary:previous.summary||previous.aiSummary||'',confidence:previous.confidence,crossValidation:previous.crossValidation};validateVision(result);return {result,provider:previous.provider,model:previous.model,usage:previous.usage,analyzedAt:previous.analyzedAt,fallback:previous.fallback||false,attempts:previous.attempts||[{provider:previous.provider,model:previous.model,status:'success',usage:previous.usage||null}],cached:true};}
+        return visionImage(image.dataUrl, image.context, VISION_SCHEMA);
+      });
     validateVision(analysis.result);
     return response
       .status(200)
@@ -25,6 +30,7 @@ export default async function handler(request, response) {
         provider: analysis.provider,
         model: analysis.model,
         usage: analysis.usage,
+        fallback: analysis.fallback, attempts:analysis.attempts, cached:analysis.cached||false,
         analyzedAt: analysis.analyzedAt,
         textFacts: image.context,
         reviewRecommended: true,
@@ -35,3 +41,4 @@ export default async function handler(request, response) {
       .json({ error: error.status ? error.message : "AI service unavailable" });
   }
 }
+

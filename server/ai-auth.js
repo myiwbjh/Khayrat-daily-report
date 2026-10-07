@@ -1,3 +1,4 @@
+import {projectAuth} from './project-auth.js';
 export class ApiError extends Error {
   constructor(status, message) {
     super(message);
@@ -27,21 +28,7 @@ export async function authorizeAI(
   request,
   { env = process.env, fetchImpl = fetch } = {},
 ) {
-  const token = /^Bearer ([A-Za-z0-9._~-]+)$/i.exec(
-    request.headers?.authorization || "",
-  )?.[1];
-  if (!token) throw new ApiError(401, "Verified sign-in required");
-  const base = env.SUPABASE_URL?.replace(/\/$/, ""),
-    key = env.SUPABASE_ANON_KEY;
-  if (!base?.startsWith("https://") || !key)
-    throw new ApiError(503, "Authentication unavailable");
-  const headers = { apikey: key, Authorization: `Bearer ${token}` };
-  const response = await fetchImpl(`${base}/auth/v1/user`, {
-    headers,
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) throw new ApiError(401, "Invalid or expired sign-in");
-  const user = await response.json();
+  const {user,headers,base}=await projectAuth(request,{env,fetchImpl,editor:true});
   const allowed = (env.AI_ALLOWED_USER_EMAILS || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
@@ -63,3 +50,4 @@ export function imageData(value, maxCharacters = 2_800_000) {
     throw new ApiError(400, "Unsupported or oversized image");
   return value;
 }
+

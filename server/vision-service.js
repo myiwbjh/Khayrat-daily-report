@@ -1,5 +1,5 @@
 import { ApiError, imageData } from "./ai-auth.js";
-import { OPENAI_MODEL, visionProvider } from './vision-provider.js';
+import { OPENAI_MODEL, visionProvider, freeProviderChain } from './vision-provider.js';
 export const MODEL = OPENAI_MODEL;
 const list = { type: "array", items: { type: "string" } };
 export const VISION_SCHEMA = {
@@ -141,14 +141,14 @@ export async function openAIImage(
     analyzedAt: new Date().toISOString(),
   };
 }
-export async function visionImage(dataUrl, context, schema, options = {}) {
+async function singleVisionImage(dataUrl, context, schema, options = {}) {
   const env = options.env || process.env, provider = visionProvider(env);
   if (provider.id === 'openai') return openAIImage(dataUrl, context, schema, options);
   const response = await (options.fetchImpl || fetch)(
     'https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.GROQ_API_KEY}` },
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(options.timeoutMs||10000),
       body: JSON.stringify({
         model: provider.model, temperature: 0, reasoning_effort: 'none',
         max_completion_tokens: 900, response_format: { type: 'json_object' },
@@ -161,8 +161,10 @@ export async function visionImage(dataUrl, context, schema, options = {}) {
         ],
       }),
     });
-  if (!response.ok) throw new ApiError(response.status === 429 ? 429 : 502,
-    response.status === 429 ? '免费视觉额度或速率限制已达上限；停止分析，请稍后再试。不会自动切换付费服务。' : 'Vision provider request failed');
+  if(!response.ok){let code='';try{code=(await response.json()).error?.code||'';}catch{}
+    const retired=['model_decommissioned','model_not_found','model_unavailable'].includes(code);
+    throw Object.assign(new ApiError(response.status,'Groq service '+response.status),{fallbackEligible:response.status===429||response.status>=500||retired});
+  }
   const body = await response.json(), choice = body.choices?.[0];
   if (choice?.finish_reason !== 'stop' || choice.message?.refusal)
     throw new ApiError(502, 'Incomplete AI result; manual review required');
@@ -229,7 +231,9 @@ export async function storedImage(
   const rows = await rowsResponse.json();
   if (!Array.isArray(rows) || rows.length !== 1)
     throw new ApiError(403, "Evidence access denied");
-  const evidence = rows[0].payload,
+  const evidence = rows[0].payload;
+  if(evidence?.ignored||evidence?.decorative||evidence?.logoConfirmed)throw new ApiError(400,"Evidence is excluded from visual analysis");
+  const
     path = evidence?.objectPath,
     bucket = env.SUPABASE_STORAGE_BUCKET || "khayrat-reports";
   if (
@@ -270,4 +274,21 @@ export async function storedImage(
     evidence,
     context: evidence.sourceExcerpt || evidence.nearbyText || "",
   };
+}
+
+
+async function geminiImage(dataUrl,context,schema,provider,options){
+ const env=options.env||process.env,m=/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(dataUrl);if(!m)throw new ApiError(400,'Invalid image');
+ const r=await (options.fetchImpl||fetch)(`https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},signal:AbortSignal.timeout(options.timeoutMs||10000),body:JSON.stringify({systemInstruction:{parts:[{text:VISION_PROMPT}]},contents:[{role:'user',parts:[{text:String(context||'').slice(0,1500)},{inlineData:{mimeType:m[1],data:m[2]}}]}],generationConfig:{temperature:0,maxOutputTokens:1600,responseMimeType:'application/json',responseJsonSchema:schema,thinkingConfig:{thinkingLevel:'low'}}})});
+ if(!r.ok){let code='';try{code=(await r.json()).error?.status||'';}catch{}throw Object.assign(new ApiError(r.status,'Gemini service '+r.status),{fallbackEligible:r.status===429||r.status>=500||(r.status===404&&code==='NOT_FOUND')});}
+ const b=await r.json(),c=b.candidates?.[0];if(c?.finishReason!=='STOP')throw new ApiError(502,'Incomplete AI result; manual review required');let result;try{result=JSON.parse(c.content.parts.filter(p=>!p.thought).map(p=>p.text||'').join(''));}catch{throw new ApiError(502,'Invalid AI result');}validateVision(result);return {result,provider:provider.name,model:provider.model,usage:b.usageMetadata||null,analyzedAt:new Date().toISOString()};
+}
+export async function visionImage(dataUrl,context,schema,options={}){
+ const env=options.env||process.env,chain=freeProviderChain(env),attempts=[];const deadline=Date.now()+40000;
+ for(const provider of chain){const startedAt=new Date().toISOString();try{
+   const timeoutMs=Math.max(1,Math.min(10000,deadline-Date.now()));if(deadline<=Date.now())throw Object.assign(new ApiError(504,'Timeout'),{fallbackEligible:true});
+   const value=provider.id==='gemini'?await geminiImage(dataUrl,context,schema,provider,{...options,timeoutMs}):await singleVisionImage(dataUrl,context,schema,{...options,timeoutMs});
+   attempts.push({provider:provider.id,model:provider.model,startedAt,finishedAt:new Date().toISOString(),status:'success',usage:value.usage||null});return {...value,fallback:attempts.length>1,attempts};
+ }catch(e){const transient=e.fallbackEligible===true||['TimeoutError','AbortError'].includes(e.name);attempts.push({provider:provider.id,model:provider.model,startedAt,finishedAt:new Date().toISOString(),status:'failed',errorReason:transient?(e.status===429?'rate-limit-or-free-quota':e.status>=500?'provider-server-error':['TimeoutError','AbortError'].includes(e.name)?'timeout':'model-unavailable'):e.message,httpStatus:e.status||null,usage:null});if(!transient){e.attempts=attempts;throw e;}}}
+ throw Object.assign(new ApiError(429,'所有免费视觉服务当前均不可用，请稍后重试。未产生付费调用。'),{attempts});
 }

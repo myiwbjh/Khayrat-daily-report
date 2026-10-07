@@ -1,3 +1,4 @@
+import {profileImage} from './logo-profile.js';
 import { mapPDFText } from "./pdf.js";
 import { withProvenance } from "./report-model.js";
 import { analyzeImageMetadata } from "./image-analysis.js";
@@ -217,6 +218,7 @@ export async function parseWithPDFJS(
             mimeType: "image/png",
             dataUrl,
             bbox: group.bbox,
+            logoProfile: await profileImage(dataUrl),
             pageWidth: entry.width,
             pageHeight: entry.height,
             components: group.parts.map(({ inline, ...p }) => p),
@@ -439,3 +441,4 @@ export class OCRProvider {
     return response.json();
   }
 }
+
