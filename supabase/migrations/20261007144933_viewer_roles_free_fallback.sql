@@ -42,9 +42,7 @@ create policy "project object update boundary" on storage.objects as restrictive
  with check(bucket_id='khayrat-reports' and split_part(name,'/',1)='khayrat' and exists(select 1 from public.project_members m where m.project_id='khayrat' and m.user_id=(select auth.uid()) and m.role='editor'));
 -- No direct deletes of original files. Logo cleanup is a narrowly checked server operation.
 create policy "no direct file delete" on storage.objects as restrictive for delete to authenticated using(false);
-commit;
 
-begin;
 create table public.vision_runs (
  image_id text primary key references public.image_evidence(image_id) on delete cascade,
  project_id text not null default 'khayrat', state text not null check(state in ('running','success','failed')),
