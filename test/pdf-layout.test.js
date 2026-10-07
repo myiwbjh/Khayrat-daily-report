@@ -12,18 +12,21 @@ import {
 } from "../src/pdf-layout.js";
 import { analyzeRecords } from "../src/analytics.js";
 const date = { date: "2026-09-30", uncertain: false, candidates: [] };
-test('small or repeated margin logos are excluded while construction photos remain',()=>{
+test('only exact repeated decorative assets are excluded; geometry alone never hides photos',()=>{
+  const logo='data:image/png;base64,'+'A'.repeat(1000);
   const pages=[1,2].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[
-    {objectId:`logo_${pageNumber}`,bbox:{x:20,y:18,width:120,height:34}},
-    {objectId:`photo_${pageNumber}`,bbox:{x:45,y:145,width:510,height:330}},
+    {objectId:`logo_${pageNumber}`,dataUrl:logo,bbox:{x:20,y:18,width:120,height:34}},
+    {objectId:`photo_${pageNumber}`,dataUrl:`data:image/png;base64,PHOTO${pageNumber}`,bbox:{x:45,y:145,width:510,height:330}},
   ]}));
   assert.equal(markDecorativeImages(pages),2);
   assert.equal(pages[0].imagePlacements[0].decorative,true);
-  assert.equal(pages[1].imagePlacements[0].decorativeReason,'small-margin-image');
+  assert.equal(pages[1].imagePlacements[0].decorativeReason,'exact-repeated-decorative-asset');
   assert.equal(pages.every(p=>p.imagePlacements[1].decorative===false),true);
-  const repeated=[1,2,3].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[{objectId:`different_${pageNumber}`,bbox:{x:15,y:8,width:400,height:85}}]}));
-  assert.equal(markDecorativeImages(repeated),3);
-  assert.equal(repeated[0].imagePlacements[0].decorativeReason,'repeated-margin-image');
+  const sameGeometry=[1,2,3].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[{objectId:`photo_${pageNumber}`,dataUrl:`data:image/png;base64,REAL${pageNumber}`,bbox:{x:15,y:8,width:400,height:85}}]}));
+  assert.equal(markDecorativeImages(sameGeometry),0);
+  assert.equal(sameGeometry.every(page=>page.imagePlacements[0].decorative===false),true);
+  const noPixels=[1,2,3].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[{objectId:'shared',bbox:{x:15,y:8,width:100,height:30}}]}));
+  assert.equal(markDecorativeImages(noPixels),0);
 });
 function page(lines) {
   const rows = lines.map(([y, values]) => {
