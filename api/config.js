@@ -1,4 +1,4 @@
-import { visionProvider } from '../server/vision-provider.js';
+import { visionProvider, freeProviderChain, consentScope } from '../server/vision-provider.js';
 export default function handler(request, response) {
   const approved =
       process.env.AI_FEATURES_APPROVED === "true" &&
@@ -14,6 +14,8 @@ export default function handler(request, response) {
       storageBucket: process.env.SUPABASE_STORAGE_BUCKET || "khayrat-reports",
       ocrEnabled: visionEnabled && provider.id === 'openai' && process.env.OCR_ENABLED === "true",
       visionEnabled,
+      visionChain: visionEnabled?freeProviderChain().map(({id,name,model,privacyNotice})=>({id,name,model,privacyNotice})):[],
+      visionConsentScope: visionEnabled?consentScope():null,
       visionProvider: visionEnabled ? provider.name : '',
       visionProviderId: visionEnabled ? provider.id : '',
       visionModel: visionEnabled ? provider.model : '',
@@ -23,3 +25,4 @@ export default function handler(request, response) {
       authRequired: process.env.ACCESS_CONTROL_REQUIRED !== "false",
     });
 }
+

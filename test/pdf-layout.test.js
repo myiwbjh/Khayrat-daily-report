@@ -15,7 +15,7 @@ const date = { date: "2026-09-30", uncertain: false, candidates: [] };
 test('only exact repeated decorative assets are excluded; geometry alone never hides photos',()=>{
   const logo='data:image/png;base64,'+'A'.repeat(1000);
   const pages=[1,2].map(pageNumber=>({pageNumber,width:600,height:840,imagePlacements:[
-    {objectId:`logo_${pageNumber}`,dataUrl:logo,bbox:{x:20,y:18,width:120,height:34}},
+    {objectId:`logo_${pageNumber}`,dataUrl:logo,logoProfile:{logoLike:true},bbox:{x:20,y:18,width:120,height:34}},
     {objectId:`photo_${pageNumber}`,dataUrl:`data:image/png;base64,PHOTO${pageNumber}`,bbox:{x:45,y:145,width:510,height:330}},
   ]}));
   assert.equal(markDecorativeImages(pages),2);
@@ -280,3 +280,4 @@ test("personnel comparison matches scope across different file fingerprints rath
 test('quantity tables retain explicit workshop, process, decimals, unit and original row',async()=>{const {otherTables,quantityTableRecords}=await import('../src/pdf-layout.js');const p=page([[50,[[20,'车间'],[140,'工序'],[270,'单位'],[380,'当日完成量'],[490,'累计完成量']]],[80,[[20,'A区'],[140,'混凝土浇筑'],[270,'m³'],[380,'12.5'],[490,'180.5']]]]);const r=quantityTableRecords(otherTables(p),p,date,'a.pdf')[0];assert.equal(r.workshop,'A区');assert.equal(r.dailyConcrete,12.5);assert.equal(r.cumulativeConcrete,180.5);assert.equal(r.workUnit,'m³');assert.match(r.sourceExcerpt,/180.5/);});
 
 test('uncertain reported quantities remain in provenance but never become trusted dashboard totals',()=>{const record={date:'2026-09-30',workshop:'A',process:'浇筑',dailyConcrete:12,cumulativeConcrete:10,workUnit:'m³',reviewFields:['dailyConcrete','cumulativeConcrete']};const q=analyzeRecords([record]).quantityGroups[0];assert.equal(q.daily,null);assert.equal(q.cumulative,null);assert.equal(record.dailyConcrete,12);const absent=analyzeRecords([{...record,dailyConcrete:null,cumulativeConcrete:null,reviewFields:[]}]).quantityGroups[0];assert.equal(absent.cumulative,null);});
+

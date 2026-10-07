@@ -33,6 +33,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
       if(state.failUpload){state.failUpload=false;return route.fulfill({status:503,json:{message:'synthetic upload failure'}});}
       state.objects.set(url.pathname,request.postDataBuffer());return route.fulfill({json:{Key:url.pathname}});
     }
+    if(url.pathname==='/rest/v1/project_members')return route.fulfill({json:[{role:'editor',is_admin:false}]});
     if(url.pathname.startsWith('/rest/v1/')){
       const table=url.pathname.split('/').at(-1);if(['progress_measurements','equipment_shipments','crosswalk_mappings'].includes(table))return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});const store=table==='daily_reports'?state.reports:table==='image_evidence'?state.images:state.audits;
       if(request.method()==='GET')return route.fulfill({json:store});
@@ -44,7 +45,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
   });
   return state;
 }
-async function login(page){const s=session();await page.goto(`/#access_token=${s.access_token}&refresh_token=${s.refresh_token}&expires_in=3600&token_type=bearer&type=magiclink`);await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');}
+async function login(page){const s=session();await page.goto(`/#access_token=${s.access_token}&refresh_token=${s.refresh_token}&expires_in=3600&token_type=bearer&type=magiclink`);await page.reload();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');await expect(page.locator('html')).toHaveAttribute('data-project-role','editor');}
 async function upload(page){await page.locator('#fileInput').setInputFiles(fixture);await expect(page.locator('#importSummary')).toContainText('2 条记录、4 张有效施工图片',{timeout:25000});}
 
 test('first email login uses correct redirect, remembered session restores and logout is explicit',async({page})=>{
@@ -178,4 +179,5 @@ test('pending password success after cancellation never logs in on cancel or Esc
     await page.unrouteAll({behavior:'wait'});
   }
 });
+
 

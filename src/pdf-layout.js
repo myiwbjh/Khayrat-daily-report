@@ -44,8 +44,7 @@ export function union(boxes) {
 
 // Automatic removal is deliberately conservative: geometry alone is not proof of
 // a logo. Only the exact same decoded image repeated on distinct pages can be
-// excluded, and it must also be either small margin furniture or a tiny asset
-// repeated on at least three pages. Uncertain images always remain evidence.
+// excluded, with small margin geometry AND a flat/background-heavy logo profile. Uncertain images always remain evidence.
 export function markDecorativeImages(pages) {
   const occurrences = new Map();
   const signature = image => image.contentSignature||image.dataUrl||'';
@@ -58,9 +57,8 @@ export function markDecorativeImages(pages) {
     const top=centerY<=page.height*.14, bottom=centerY>=page.height*.9;
     const smallMargin=(top||bottom)&&b.width<=page.width*.4&&b.height<=page.height*.12&&area<=pageArea*.05;
     const key=signature(image),repetitions=key?occurrences.get(key)?.size||0:0,encodedBytes=key.startsWith('data:')?Math.floor((key.length-key.indexOf(',')-1)*.75):Number(image.encodedBytes)||Infinity;
-    const exactRepeatedMargin=repetitions>=2&&smallMargin;
-    const exactRepeatedTiny=repetitions>=3&&encodedBytes<=131072;
-    image.decorative=Boolean(key&&(exactRepeatedMargin||exactRepeatedTiny));
+    const exactRepeatedMargin=repetitions>=2&&smallMargin&&image.logoProfile?.logoLike===true;
+    image.decorative=Boolean(key&&exactRepeatedMargin);
     image.decorativeReason=image.decorative?'exact-repeated-decorative-asset':'';
     if(image.decorative)count++;
   }
@@ -770,3 +768,4 @@ export function quantityTableRecords(tables, page, date, sourceFile) {
   }
   return records;
 }
+

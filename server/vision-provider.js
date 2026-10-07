@@ -28,3 +28,14 @@ export function requireProviderConsent(body, env = process.env) {
     throw new ApiError(409, 'Vision provider changed; review destination and authorize again');
   return provider;
 }
+
+
+export const GEMINI_MODELS=['gemini-3.8-flash','gemini-3.5-flash-lite','gemini-3.7-flash'];
+export function freeProviderChain(env=process.env){
+ const primary=visionProvider(env);if(primary.id!=='groq')return [primary];
+ // Verified 2026-10-07 against official pricing/model docs. Never infer free from a model name.
+ const backups=env.GEMINI_API_KEY&&env.GEMINI_FREE_TIER_CONFIRMED==='true'&&env.GEMINI_BILLING_DISABLED_CONFIRMED==='true'&&env.GEMINI_NONCONFIDENTIAL_USE_CONFIRMED==='true'?GEMINI_MODELS.map(model=>({id:'gemini',name:'Google Gemini',model,minIntervalMs:61000,privacyNotice:'Google 免费层可能用于产品改进及人工审阅；仅发送非敏感、非保密资料。'})):[];
+ return [primary,...backups];
+}
+export function consentScope(env=process.env){return freeProviderChain(env).map(p=>`${p.id}:${p.model}`).join('|')+'|privacy-v1';}
+export function requireChainConsent(body,env=process.env){const chain=freeProviderChain(env);requireProviderConsent(body,env);if(chain.length>1&&body.consentScope!==consentScope(env))throw new ApiError(409,'视觉接收平台范围已改变，请重新阅读并授权');return chain;}

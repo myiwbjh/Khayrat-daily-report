@@ -1,0 +1,2 @@
+import {rest} from '../server/project-auth.js';
+export default async function handler(req,res){res.setHeader('Cache-Control','no-store');if(req.method!=='GET')return res.status(405).json({error:'Read only'});try{const rows=await rest('/rest/v1/public_dashboard_snapshots?project_id=eq.khayrat&select=payload,published_at&limit=1');if(!rows?.length)return res.status(200).json({published:false});return res.status(200).json({published:true,publishedAt:rows[0].published_at,...rows[0].payload});}catch(e){return res.status(e.status||503).json({error:'公开 Dashboard 暂未发布或不可用'});}}
