@@ -14,7 +14,7 @@
 
 增量 migration 补齐日报、图片、Audit、私有 Storage 的 Reader 读取及 Editor 写入策略；原 owner ALL 策略也受 restrictive Editor 写边界限制。Audit 对客户端仅追加、禁止更新删除；原始文件不允许客户端删除。工程量、物流、Crosswalk 现有 restrictive member boundary 与 permissive Editor 写策略保持原样，不存在 Reader ALL 放权。
 
-新 `is_admin` 只在已有 Khayrat editor 成员匹配原管理员已存在的 auth.users 邮箱时初始化。管理员 UI 可预建邮箱或修改已加入项目的 UUID 的 reader/editor 角色，不允许 UI 授予 is_admin，也不自动发送邮件。新账号通过现有登录页发送验证邮件后设置密码。另需在 Supabase Auth 后台确认“Allow new users to sign up”关闭；前端不包含 signUp，拒绝自动注册不能代替 Auth 服务配置。
+新 `is_admin` 只在已有 Khayrat editor 成员匹配原管理员已存在的 auth.users 邮箱时初始化。管理员 UI 可预建邮箱或修改已加入项目的 UUID 的 reader/editor 角色，不允许 UI 授予 is_admin，也不自动发送邮件。新账号通过现有登录页发送验证邮件后设置密码。Production `/auth/v1/settings` 实测 `disable_signup=false`，因此上线前必须在 Supabase Auth 后台关闭“Allow new users to sign up”；前端不包含 signUp，拒绝自动注册不能代替 Auth 服务配置。
 
 ## 视觉链与隐私（官方资料核验：2026-10-07）
 
@@ -59,4 +59,23 @@ Gemini 免费条款允许 API 应用使用，但免费输入/输出可能用于�
 
 ## 验证边界
 
-本地 Unit/PostgreSQL 127/127 与生产构建通过，Public Viewer / Reader / WBS 8/8 浏览器测试通过。真实 Excel 从用户提供文件恢复，Git blob Hash 与仓库完全一致。GitHub 连接器不支持读取二进制 PDF，因此本地 PDF E2E 使用另行生成的替代样本作补充检查；不把此样本写入远端，不把它当作原测试文件验收。完整 E2E 最终以 GitHub CI 使用仓库原始 synthetic-reports.pdf 的结果为准。
+本地 Unit/PostgreSQL 129/129 与生产构建通过，29/29 本地浏览器测试通过（PDF 使用替代样本）。真实 Excel 从用户提供文件恢复，Git blob Hash 与仓库完全一致。GitHub 连接器不支持读取二进制 PDF，因此本地 PDF E2E 使用另行生成的替代样本作补充检查；不把此样本写入远端，不把它当作原测试文件验收。完整 E2E 最终以 GitHub CI 使用仓库原始 synthetic-reports.pdf 的结果为准。
+
+## 模块验收分类
+
+| 模块 | 本次状态 | 剩余验收 / 业务规则 |
+| --- | --- | --- |
+| 日报导入、人员统计 | 现有真实记录可读；合成 PDF 浏览器回归通过 | 新规则在业主认可的真实日报样本上复核人员口径 |
+| 图片图文关联 | 65 张有车间和布局坐标；人工复核 2 张 | 剩余关联与照片需人工确认 |
+| Logo 排除 / 清理 | 新判据和逐张确认清理已实现、单测通过；ignored=true 为 0 | 尚未执行历史照片批量删除；不能仅凭 ignored 删除 |
+| 视觉自动分析 | Production Groq 配置保持启用，已有结果；免费链模拟回归通过 | Gemini 免费 Key、配额及隐私条件未配置，未真实外发验证 |
+| WBS / 工程量 / S Curve | 532 条真实数据；真实 Excel 回归通过，原架构保持 | To Be Verified 数量差异及权重业务确认，不能自动改量 |
+| 设备物流 | 功能与测试存在，真实记录 0 | 待录入设备发运数据，不属于功能故障 |
+| Crosswalk | 功能与测试存在，真实记录 0 | 待录入并确认多对多映射，不属于功能故障 |
+| Public Viewer | 只读页面与受控 API 已实现；未配置时返回 503 | migration、服务端 Key、Editor 审核首次发布后验收真实页面 |
+| Reader / Editor | 后端权限、真实 PostgreSQL RLS 与浏览器回归通过 | Production migration、关闭公众注册、真实双账号验收 |
+| Dashboard 最新车间 | 按标准化名称、最新日期合并工序；不再用日报百分比补 WBS | 车间别名表需现场确认；尚未在 Production 部署新代码 |
+
+补充发现：原有日报“删除”只移除本机缓存，尚无云端删除流程；本次没有将其扩展为生产数据删除。
+
+Preview READY；经受保护访问核验 `/view` 返回 200，缺少服务密钥时 `/api/public-dashboard` 返回 503。GitHub Actions 原始 PDF 完整回归仍排队，不能宣称 CI 已通过。Supabase CLI 创建 migration 后的遥测被自动审批拒绝，因此没有重试该遥测请求；后续采用本地 PostgreSQL 验证。
