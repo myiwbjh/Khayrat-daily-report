@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {parseKhayratProgressWorkbook} from '../src/xlsx.js';
 import {analyzeProgress,currentProgressRows,summarizeProgress} from '../src/project-data.js';
+import {SupabaseCloudRepository} from '../src/cloud.js';
 
 const fixture=new URL('./fixtures/Khayrat-progress-real.xlsx',import.meta.url);
 const close=(actual,expected,tolerance=1e-9)=>assert.ok(Math.abs(actual-expected)<=tolerance,`${actual} != ${expected}`);
@@ -36,4 +37,23 @@ test('same file hash is stable and a newer batch becomes current while the old s
  const previous=first.currentRecords.map(row=>({...row,importBatchId:'progress:khayrat:previous',fileHash:'0'.repeat(64),importedAt:'2026-09-30T00:00:00Z',actualCumulativePct:Number.isFinite(row.actualCumulativePct)?Math.max(0,row.actualCumulativePct-2):null}));
  assert.equal(new Set([...previous,...first.records].map(row=>row.importBatchId)).size,2);assert.equal(currentProgressRows([...previous,...first.records])[0].importBatchId,first.batch.id);
  const summary=summarizeProgress([...previous,...first.records],{asOf:'2026-10-06'});assert.ok(summary.versionDiff);assert.equal(summary.versionDiff.previous.id,'progress:khayrat:previous');assert.ok(summary.versionDiff.actualChange>0);
+});
+
+test('an incomplete text batch retries with a separate UUID audit and idempotent WBS upserts',async()=>{
+ const parsed=await parse(),state={batch:{id:parsed.batch.id,project_id:'khayrat',file_hash:parsed.batch.fileHash,source_file:'old.xlsx',import_status:'importing',current_version:false,imported_at:'2026-10-06T16:50:56.648Z'},measurements:new Map(parsed.records.slice(0,12).map(row=>[row.id,{id:row.id}])),audits:[],objects:0};
+ const response=(json={})=>({ok:true,json:async()=>json,text:async()=>''});
+ const fetchImpl=async(url,options={})=>{const parsedUrl=new URL(url),table=parsedUrl.pathname.split('/').at(-1),body=options.body&&typeof options.body==='string'?JSON.parse(options.body):null;
+  if(parsedUrl.pathname.startsWith('/storage/v1/object/')){state.objects++;return response();}
+  if(table==='progress_import_batches'&&options.method!=='POST'&&options.method!=='PATCH')return response([state.batch]);
+  if(table==='progress_import_batches'&&options.method==='POST'){state.batch={...state.batch,...body};return response();}
+  if(table==='progress_import_batches'&&options.method==='PATCH'){if(parsedUrl.searchParams.get('id')===`eq.${state.batch.id}`)Object.assign(state.batch,body);return response();}
+  if(table==='progress_measurements'){for(const row of body)state.measurements.set(row.id,row);return response();}
+  if(table==='import_audits'){state.audits.push(body);return response();}
+  throw new Error(`unexpected ${options.method||'GET'} ${url}`);
+ };
+ const repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public',storageBucket:'reports'},{accessToken:'jwt',fetchImpl}),file=new Blob(['xlsx'],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});Object.defineProperty(file,'name',{value:'Khayrat.xlsx'});
+ const saved=await repo.saveProgressWorkbook(file,parsed),uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ assert.match(parsed.batch.id,/^progress:khayrat:[0-9a-f]{64}$/);assert.match(saved.auditId,uuid);assert.equal(state.audits[0].import_id,saved.auditId);assert.equal(state.audits[0].result.progressBatchId,parsed.batch.id);
+ assert.equal(saved.resumed,true);assert.equal(state.batch.import_status,'complete');assert.equal(state.batch.current_version,true);assert.equal(state.measurements.size,532);assert.equal(new Set(state.measurements.keys()).size,532);
+ const duplicate=await repo.saveProgressWorkbook(file,parsed);assert.equal(duplicate.duplicate,true);assert.equal(state.audits.length,1);assert.equal(state.measurements.size,532);
 });
