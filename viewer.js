@@ -1,4 +1,5 @@
 import {analyzeRecords,filterRecords} from './src/analytics.js';
+import {latestWorkshopStates} from './src/workshop-status.js';
 import {compareReports} from './src/comparison.js';
 import {summarizeProgress,crossAnalyze} from './src/project-data.js';
 const $=id=>document.getElementById(id);
@@ -20,7 +21,7 @@ function chart(parent,points,keys,labels,{percent=true}={}){
  keys.forEach((k,ki)=>{let path='',open=false;points.forEach((p,i)=>{if(!Number.isFinite(p[k])){open=false;return;}path+=`${open?'L':'M'} ${x(i)} ${y(p[k])} `;open=true;const dot=add('circle',{cx:x(i),cy:y(p[k]),r:3,fill:ki?'#14896e':'#8293a0'});const title=document.createElementNS(ns,'title');title.textContent=`${p.month||p.date} · ${labels[ki]} ${percent?pct(p[k]):p[k]}`;dot.append(title);});add('path',{d:path,fill:'none',stroke:ki?'#14896e':'#8293a0','stroke-width':3});});
  points.forEach((p,i)=>{if(i===0||i===points.length-1||i===Math.floor(points.length/2))add('text',{x:x(i),y:265,'text-anchor':'middle'},p.month||p.date);});parent.append(svg);const legend=node('p',null,'chart-legend');labels.forEach(l=>legend.append(node('span',l)));parent.append(legend);
 }
-function workshops(parent,rows=data.workshops||[]){table(parent,['车间','最新日期','施工内容 / 工序','当前状态'],rows.filter(w=>(!$('workshopFilter').value||w.workshop===$('workshopFilter').value)).map(w=>[w.workshop,w.date,[...(w.processes||[]),...(w.activities||[])].join('；'),(w.statuses||[]).join(' / ')]),{id:parent.id==='view-workshops'?'workshops':undefined});}
+function workshops(parent,rows=data.workshops||[]){table(parent,['车间','最新日期','施工内容 / 工序','当前状态'],rows.map(w=>[w.workshop,w.date,[...(w.processes||[]),...(w.activities||[])].join('；'),(w.statuses||[]).join(' / ')]),{id:parent.id==='view-workshops'?'workshops':undefined});}
 function reportsTable(parent,rows){table(parent,['日期','车间','工序','施工内容','状态','中方 / 属地','人员口径','当日 / 累计工程量','风险 / 制约','复核状态'],rows.map(r=>[r.date,r.workshop,r.process,r.constructionContent,r.status,`${display(r.chineseStaff)} / ${display(r.localStaff)}`,r.staffScope,`${display(r.dailyConcrete)} / ${display(r.cumulativeConcrete)} ${r.workUnit||''}`,r.risk,r.needsReview?'待复核':'' ]));}
 function show(){const id=location.hash.slice(1) in names?location.hash.slice(1):'overview';$('pageTitle').textContent=names[id];for(const [key,s] of sections)s.hidden=key!==id;document.querySelectorAll('nav a').forEach(a=>{if(a.hash===`#${id}`)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});}
 function render(){
@@ -31,7 +32,7 @@ function render(){
  const workforce=(analytics.workforce?.length?analytics.workforce:data.workforce||[]).filter(r=>r.date<=cutoff),latest=workforce.at(-1),overview=section('overview'),metrics=node('div',null,'metrics');overview.append(metrics);
  metric(metrics,'WBS 计划累计',pct(progress.planned));metric(metrics,'WBS 实际累计',pct(progress.actual),Number.isFinite(progress.planned)&&Number.isFinite(progress.actual)?`偏差 ${(progress.actual-progress.planned).toFixed(1)} 个百分点`:'');metric(metrics,'项目总人数',latest?.total??'待核',latest?`中方 ${latest.chinese??'待核'} · 属地 ${latest.local??'待核'} · ${latest.date}`:'待数据录入');metric(metrics,'日报记录',String(reportRows.length),`已批准公开照片 ${data.photos?.length||0} 张`);
  chart(panel(overview,'S Curve · WBS 正式进度'),progress.timeline||[],['planned','actual'],['计划','实际']);
- workshops(panel(overview,'主要车间最新施工状态'),data.reports?analytics.workshops:data.workshops||[]);table(panel(overview,'人员统计'),['日期','中方','属地','合计','复核状态'],workforce.map(r=>[r.date,r.chinese,r.local,r.total,r.needsReview?'待复核':'已按报告口径统计']));
+ workshops(panel(overview,'主要车间最新施工状态'),data.reports?latestWorkshopStates(reportRows):data.workshops||[]);table(panel(overview,'人员统计'),['日期','中方','属地','合计','复核状态'],workforce.map(r=>[r.date,r.chinese,r.local,r.total,r.needsReview?'待复核':'已按报告口径统计']));
  const reportView=section('reports');reportView.append(node('p',`${reportRows.length} 条记录 · 日报施工事实不作为 WBS 正式进度`,'muted'));reportsTable(reportView,reportRows);
  const compare=section('compare'),controls=node('div',null,'controls'),dates=[...new Set(reports.map(r=>r.date))].sort();
  for(const [id,title,value] of [['beforeDate','前期日期',beforeDate||dates.at(-2)],['afterDate','后期日期',afterDate||dates.at(-1)]]){const label=node('label',title),select=node('select');select.id=id;dates.forEach(d=>{const option=node('option',d);option.value=d;select.append(option);});select.value=value||'';select.onchange=()=>{beforeDate=$('beforeDate').value;afterDate=$('afterDate').value;render();};label.append(select);controls.append(label);}compare.append(controls);
@@ -41,7 +42,7 @@ function render(){
  const allowedPhotos=(data.photos||[]).filter(r=>r.date<=cutoff&&(!$('workshopFilter').value||r.workshop===$('workshopFilter').value));
  if(!allowedPhotos.length)photos.append(node('p','暂无已批准公开的施工照片','notice'));
  for(const photo of allowedPhotos){const figure=node('figure'),img=node('img');img.src=`/api/public-photo?id=${encodeURIComponent(photo.imageId)}`;img.alt=photo.caption||'施工照片';img.loading='lazy';const details=node('details'),summary=node('summary','查看照片详情');details.append(summary,node('p',`${photo.date} · ${photo.workshop} · ${photo.caption||''}`));figure.append(img,details);gallery.append(figure);}photos.append(gallery);
- const workshopView=section('workshops');workshops(workshopView,data.reports?analytics.workshops:data.workshops||[]);
+ const workshopView=section('workshops');workshops(workshopView,data.reports?latestWorkshopStates(reportRows):data.workshops||[]);
  const progressView=section('progress');progressView.append(node('p',`计划 ${pct(progress.planned)} · 实际 ${pct(progress.actual)} · ${p.qualityIssues?.length?'To Be Verified':progress.qualityStatus||'按当前 WBS 基准计算'}`));chart(panel(progressView,'S Curve · 计划 / 实际累计'),progress.timeline||[],['planned','actual'],['计划','实际']);
  table(panel(progressView,'专业进度'),['专业','专业内部计划完成率','专业内部实际完成率','对项目贡献'],(p.disciplines||[]).map(r=>[r.name,pct(r.plannedCompletion),pct(r.actualCompletion),pct(r.contributionToProject)]));
  table(panel(progressView,'WBS 明细 · 月末口径'),['WBS','工作项','专业','月份','权重','计划累计','实际累计','计划总量','跟踪总量','复核状态'],(p.latest||[]).map(r=>[r.wbs,r.item,r.discipline,r.month,r.weight,pct(r.plannedCumulativePct),pct(r.actualCumulativePct),`${display(r.baselineTotal??r.total)} ${r.unit||''}`,`${display(r.trackingTotal)} ${r.unit||''}`,r.quantityMismatch?'To Be Verified':r.stale?'数据过期':'按当前基准计算']),{empty:hasRows?'该日期暂无完整月末数据':'暂无 WBS 明细；需发布最新完整看板'});
