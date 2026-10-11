@@ -1,6 +1,8 @@
 import { ApiError, imageData } from "./ai-auth.js";
 import { OPENAI_MODEL, visionProvider, freeProviderChain } from './vision-provider.js';
+import sharp from 'sharp';
 export const MODEL = OPENAI_MODEL;
+export const VISION_IMAGE_LIMIT=8_000_000,VISION_IMAGE_TARGET=3_900_000,VISION_IMAGE_MAX_EDGE=1920,VISION_IMAGE_SOURCE_LIMIT=50_000_000;
 const list = { type: "array", items: { type: "string" } };
 export const VISION_SCHEMA = {
   type: "object",
@@ -216,6 +218,19 @@ export function validateVision(value) {
     bad();
   return value;
 }
+export async function prepareVisionImage(buffer,mime,{sharpImpl=sharp}={}){
+  if(!Buffer.isBuffer(buffer))buffer=Buffer.from(buffer||[]);
+  if(!['image/png','image/jpeg','image/webp'].includes(mime))throw new ApiError(422,'图片临时压缩失败：仅支持 JPEG、PNG 或 WebP');
+  if(buffer.length<=VISION_IMAGE_LIMIT)return {buffer,mime,compressed:false};
+  try{
+    const source=sharpImpl(buffer,{failOn:'error',limitInputPixels:80_000_000}).rotate();
+    for(const [edge,quality] of [[VISION_IMAGE_MAX_EDGE,82],[VISION_IMAGE_MAX_EDGE,68],[1600,55]]){
+      const output=await source.clone().resize({width:edge,height:edge,fit:'inside',withoutEnlargement:true}).flatten({background:'#fff'}).jpeg({quality,mozjpeg:true}).toBuffer({resolveWithObject:true});
+      if(output.data.length<VISION_IMAGE_TARGET)return {buffer:output.data,mime:'image/jpeg',compressed:true,width:output.info.width,height:output.info.height};
+    }
+  }catch(error){if(error instanceof ApiError)throw error;throw new ApiError(422,'图片临时压缩失败：无法解码或处理该照片');}
+  throw new ApiError(422,'图片临时压缩失败：压缩后仍超过 4 MB，请人工缩小后重试');
+}
 export async function storedImage(
   imageId,
   auth,
@@ -248,9 +263,8 @@ export async function storedImage(
     { headers: auth.headers, signal: AbortSignal.timeout(20000) },
   );
   if (!response.ok) throw new ApiError(403, "Private image access denied");
-  const limit = 8_000_000;
-  if (Number(response.headers.get("content-length")) > limit)
-    throw new ApiError(413, "Image exceeds 8 MB analysis limit");
+  if (Number(response.headers.get("content-length")) > VISION_IMAGE_SOURCE_LIMIT)
+    throw new ApiError(413, "图片临时压缩失败：原图超过 50 MB 安全读取上限");
   const reader = response.body.getReader(),
     chunks = [];
   let size = 0;
@@ -258,15 +272,15 @@ export async function storedImage(
     const { value, done } = await reader.read();
     if (done) break;
     size += value.length;
-    if (size > limit) {
+    if (size > VISION_IMAGE_SOURCE_LIMIT) {
       await reader.cancel();
-      throw new ApiError(413, "Image exceeds 8 MB analysis limit");
+      throw new ApiError(413, "图片临时压缩失败：原图超过 50 MB 安全读取上限");
     }
     chunks.push(Buffer.from(value));
   }
-  const mime = (response.headers.get("content-type") || "").split(";")[0],
+  const mime = (response.headers.get("content-type") || "").split(";")[0],prepared=await prepareVisionImage(Buffer.concat(chunks),mime),
     dataUrl = imageData(
-      `data:${mime};base64,${Buffer.concat(chunks).toString("base64")}`,
+      `data:${prepared.mime};base64,${prepared.buffer.toString("base64")}`,
       11_000_000,
     );
   return {
