@@ -1,7 +1,7 @@
 import {profileImage} from './logo-profile.js';
 import { mapPDFText } from "./pdf.js";
 import { withProvenance } from "./report-model.js";
-import { analyzeImageMetadata } from "./image-analysis.js";
+import { analyzeImageMetadata,fingerprintImageData } from "./image-analysis.js";
 import { businessKey } from "./storage.js";
 import {
   IDENTITY,
@@ -211,6 +211,7 @@ export async function parseWithPDFJS(
             1;
           const base = {
             imageId: `pdfjs-${fingerprint}-${entry.pageNumber}-${group.parts.map((p) => `${p.operatorIndex}_${p.occurrence || 0}`).join("-")}`,
+            contentSignature: await fingerprintImageData(dataUrl),
             sourceFile,
             pageNumber: entry.pageNumber,
             imageIndex,
