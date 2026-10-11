@@ -46,6 +46,10 @@ test('personnel bars grow with total headcount and missing/future WBS points are
  await csv(page,'#progressInput','partial.csv','WBS,权重,月份,计划累计完成比例,实际累计完成比例\nA,60,2026-09,70,40\nB,40,2026-09,70,\nA,60,2026-11,90,80\nB,40,2026-11,90,80','#progressCount');await page.locator('#progressAsOf').fill('2026-10-06');await page.locator('#progressAsOf').dispatchEvent('change');await expect(page.locator('#actualKpi')).toHaveText('—');await expect(page.locator('#trendChart .actual-dot')).toHaveCount(0);await expect(page.locator('#trendChart .actual-line')).toHaveAttribute('d',/^\s*$/);
 });
 
+test('continuous stoppage chain shows latest workshop judgment and retained recovery history',async({page})=>{
+ const state=await sandbox(page),row=(id,date,workshop,content,status='')=>({id,project_id:'khayrat',payload:{id,date,workshop,process:/回填/.test(content)?'回填':'未报告工序',status,constructionContent:content,sourceFile:`${date}.pdf`}});state.tables.daily_reports=[row('c1','2026-09-30','熟料输送','今日暂无人员施工。','当日暂无人员施工'),row('c2','2026-10-07','熟料输送','今日暂无人员施工。','当日暂无人员施工'),row('c3','2026-10-10','熟料输送','今日暂无人员施工。','当日暂无人员施工'),row('a1','2026-09-16','空压机房','今日暂无人员施工。','当日暂无人员施工'),row('a2','2026-09-30','空压机房','今日暂无人员施工。','当日暂无人员施工'),row('a3','2026-10-07','空压机房','今日暂无人员施工。','当日暂无人员施工'),row('a4','2026-10-10','空压机房','室内土方回填。')];await login(page);await page.locator('#dateFilter').fill('');await page.locator('#dateFilter').dispatchEvent('change');await expect(page.locator('#evidenceList')).toContainText('熟料输送 · 疑似停滞');await expect(page.locator('#evidenceList')).toContainText('空压机房 · 已恢复施工');await expect(page.locator('#evidenceList')).toContainText('历史 疑似停滞 2026-09-16 至 2026-10-07');await expect(page.locator('#stoppageKpi')).toHaveText('1');
+});
+
 test('real project workbook drives WBS dashboard, stores one batch and rejects duplicate upload',async({page})=>{
  const state=await sandbox(page);await login(page);const buffer=await readFile(new URL('../test/fixtures/Khayrat-progress-real.xlsx',import.meta.url));
  await page.locator('#progressInput').setInputFiles({name:'Khayrat粉磨站进度跟踪表.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer});

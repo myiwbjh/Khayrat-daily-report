@@ -42,6 +42,7 @@ const visualSimilarity=(left,right)=>{
   let score=0,weight=0;for(const [key,w] of fields){const similarity=textSimilarity(left[key],right[key]);if(similarity==null)continue;score+=similarity*w;weight+=w;}
   return {score:weight?score/weight:0,evidenceWeight:weight};
 };
+export function compareImageEvidence(left,right){const similarity=visualSimilarity(left,right);return {duplicate:sameAsset(left,right),similarity:similarity.score,evidenceWeight:similarity.evidenceWeight};}
 const daySpan=(left,right)=>Math.round((Date.parse(right)-Date.parse(left))/86400000);
 const normalized=value=>comparableText(value);
 

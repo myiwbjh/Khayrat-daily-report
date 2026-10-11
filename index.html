@@ -78,7 +78,7 @@
           <article><span>WBS 加权实际进度</span><b id="actualKpi">—</b><small id="varianceNote">无权重时展示分项统计</small></article>
           <article><span>本期计划 / 实际进度</span><b id="concreteKpi">—</b><small id="concreteNote">工程量 WBS 基准口径</small></article>
           <article><span>现场人员</span><b id="peopleKpi">—</b><small id="peopleNote">中方 — · 属地 —</small></article>
-          <article class="alert-kpi"><span>连续停工预警</span><b id="stoppageKpi">—</b><small>连续 3 个有效日报日</small></article>
+          <article class="alert-kpi"><span>停滞 / 停工预警</span><b id="stoppageKpi">—</b><small>按各车间最新日报判断</small></article>
           <article><span>照片证据识别</span><b id="photoKpi">—</b><small id="photoNote">已识别 / 有效照片</small></article>
         </section>
 
@@ -104,10 +104,8 @@
             <div id="riskList" class="risk-list"></div>
           </article>
           <article class="panel evidence-panel" id="evidence">
-            <div class="panel-title"><div><h2>连续停工证据链</h2><p>明确停工仅采信日报、现场确认等可靠依据；照片相似只提示疑似停滞</p></div></div>
+            <div class="panel-title"><div><h2>连续停工证据链</h2><p>从每个车间最新日报向前逐日核对文字、人员与照片；缺失信息不作为停工证据</p></div></div>
             <div id="evidenceList" class="evidence-list"></div>
-            <div class="stagnation-heading"><b>照片疑似停滞提示</b><small>跨日期同车间视觉语义相似度 + 工序 + 日报交叉核对；重复照片不计独立证据</small></div>
-            <div id="stagnationList" class="stagnation-list"></div>
           </article>
           <article class="panel photo-evidence-panel">
             <div class="panel-title"><div><h2>图片识别概览</h2><p>仅汇总照片可见场景与图文核对，不从照片估算人数、工程量或进度百分比</p></div></div>
