@@ -17,12 +17,11 @@
       <a href="#entry" data-view="entryView"><span>＋</span>日报录入</a>
       <a href="#compare" data-view="compareView"><span>⇄</span>日报对比</a>
       <a href="#images" data-view="imagesView"><span>▧</span>图片证据</a>
-      <a href="#workshops"><span>▦</span>车间进度</a>
-      <a href="#equipment"><span>◇</span>设备跟踪</a>
-      <a href="#risks"><span>△</span>风险与制约</a>
+      <a href="#workshops" data-view="overviewView"><span>▦</span>车间状态与预警</a>
+      <a href="#equipment" data-view="overviewView"><span>◇</span>设备跟踪</a>
+      <a href="#risks" data-view="overviewView"><span>△</span>风险与制约</a>
       <p>数据中心</p>
-      <a href="#import"><span>⇧</span>日报导入</a>
-      <a href="#evidence"><span>≡</span>停工证据</a>
+      <a href="#import" data-view="dataView"><span>⇧</span>数据导入与工程量</a>
     </nav>
     <div class="contract-card">
       <span>设备安装目标</span><b>2026 年 12 月</b><small>合同工期起算：2026-09-07</small>
@@ -165,6 +164,7 @@
         <div id="imageGallery" class="image-gallery"></div>
       </section>
 
+      <section id="dataView" class="page-view" hidden>
       <section class="import-panel" id="import">
         <div><span class="import-icon">⇧</span><div><h2>日报数据导入</h2><p>可多选 CSV / XLSX / PDF；统一标准化并按日期、车间、工序去重。PDF 图片进入证据库。</p></div></div>
         <div class="import-actions"><label class="ocr-consent"><input id="ocrConsent" type="checkbox"> 授权扫描页发送至 OCR（扫描版 PDF 才需要）</label><label class="ocr-consent"><input id="analyzeAfterImport" type="checkbox"> <span id="analyzeAfterImportText">视觉分析配置检查中</span></label><button class="primary import-trigger">选择文件</button><button id="folderImportButton" class="outline">选择 PDF 文件夹</button></div>
@@ -186,6 +186,7 @@
           <div><h3>主要滞后 WBS</h3><div class="table-scroll"><table><thead><tr><th>WBS</th><th>计划累计</th><th>实际累计</th><th>偏差</th><th>项目贡献</th></tr></thead><tbody id="laggingWbsRows"></tbody></table></div></div>
         </section>
         <div id="crossAnalysis" class="cross-analysis"></div>
+      </section>
       </section>
       <footer>KHAYRAT 3,200 TPD CEMENT GRINDING PLANT · SAMAWAH, IRAQ <span>云端配置可见 · 上传需授权</span></footer>
     </div>
