@@ -27,3 +27,47 @@ export function summarizeImageEvidence(images,{date='',workshop='',process=''}={
   return {total:relevant.length,analyzed:analyzed.length,linked:linked.length,pending:relevant.length-analyzed.length,review:relevant.filter(i=>i.reviewRecommended&&!i.manualReviewed).length,conflicts:conflicts.length,sceneCounts:[...scenes].sort((a,b)=>b[1]-a[1]||SCENES.indexOf(a[0])-SCENES.indexOf(b[0])),conflictItems:conflicts};
 }
 
+const comparableText=value=>[value].flat().filter(Boolean).join(' ').toLowerCase().replace(/[\s，。；、,.!！?？:：()（）【】\[\]"']/g,'');
+const shingles=value=>{const text=comparableText(value),out=new Set();for(let i=0;i<text.length-1;i++)out.add(text.slice(i,i+2));return out;};
+const textSimilarity=(left,right)=>{const a=shingles(left),b=shingles(right);if(!a.size||!b.size)return null;let common=0;for(const item of a)if(b.has(item))common++;return common/(a.size+b.size-common);};
+const sameAsset=(left,right)=>{
+  const a=left.contentSignature||left.visualFingerprint||left.pixelHash||left.imageId;
+  const b=right.contentSignature||right.visualFingerprint||right.pixelHash||right.imageId;
+  if(a&&b&&a===b)return true;
+  const fields=image=>['stage','scene','structures','activities','visibleFacts'].map(key=>comparableText(image[key])).join('|');
+  const first=fields(left),second=fields(right);return first.length>80&&first===second;
+};
+const visualSimilarity=(left,right)=>{
+  const fields=[['stage',.25],['structures',.3],['activities',.2],['visibleFacts',.2],['scene',.05]];
+  let score=0,weight=0;for(const [key,w] of fields){const similarity=textSimilarity(left[key],right[key]);if(similarity==null)continue;score+=similarity*w;weight+=w;}
+  return {score:weight?score/weight:0,evidenceWeight:weight};
+};
+const daySpan=(left,right)=>Math.round((Date.parse(right)-Date.parse(left))/86400000);
+const normalized=value=>comparableText(value);
+
+// Photo similarity is a review signal only. It never upgrades an image pair to a stoppage finding.
+export function detectSuspectedStagnation(images,records=[],{date='',workshop='',process='',minDays=7,minSimilarity=.78}={}){
+  const candidates=images.filter(image=>!image.ignored&&!image.decorative&&!image.logoConfirmed&&(image.visionEnabled||image.manualReviewed)&&image.relatedDate&&image.relatedWorkshop&&(!date||image.relatedDate<=date)&&(!workshop||normalized(image.relatedWorkshop)===normalized(workshop))&&(!process||normalized(image.relatedProcess)===normalized(process)));
+  const groups=new Map();for(const image of candidates){const key=normalized(image.relatedWorkshop);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(image);}
+  const items=[];let duplicatesExcluded=0;
+  for(const group of groups.values()){
+    group.sort((a,b)=>a.relatedDate.localeCompare(b.relatedDate)||String(a.imageId).localeCompare(String(b.imageId)));
+    let previous=null;
+    for(const current of group){
+      if(!previous){previous=current;continue;}
+      if(current.relatedDate===previous.relatedDate){continue;}
+      if(sameAsset(previous,current)){duplicatesExcluded++;continue;}
+      if(previous.relatedProcess&&current.relatedProcess&&normalized(previous.relatedProcess)!==normalized(current.relatedProcess)){previous=current;continue;}
+      const days=daySpan(previous.relatedDate,current.relatedDate),similarity=visualSimilarity(previous,current);
+      if(days>=minDays&&similarity.evidenceWeight>=.45&&similarity.score>=minSimilarity){
+        const relatedReports=records.filter(record=>normalized(record.workshop)===normalized(current.relatedWorkshop)&&record.date>=previous.relatedDate&&record.date<=current.relatedDate&&(!previous.relatedProcess||!current.relatedProcess||!record.process||normalized(record.process)===normalized(current.relatedProcess)));
+        const reportText=relatedReports.map(record=>[record.status,record.constructionContent,record.rawRecord].filter(Boolean).join(' ')).join(' '),explicit=/停工|暂停施工|中止施工|stopped|suspended/i.test(reportText),confirmed=/现场确认|监理确认|业主确认|签认/.test(reportText),active=/施工中|进行中|持续施工|in progress/i.test(reportText);
+        const reportBasis=confirmed&&explicit?'日报含经现场/监理确认的停工依据':explicit?'日报含明确停工表述；长期停工仍需连续日报或现场确认':active?'同期日报仍记录施工中，需优先复核图文冲突':relatedReports.length?'同期日报未提供明确停工依据':'缺少同期日报交叉依据';
+        items.push({classification:'疑似停滞',stopDetermination:false,workshop:current.relatedWorkshop,process:current.relatedProcess||previous.relatedProcess||'',startDate:previous.relatedDate,endDate:current.relatedDate,days,similarity:similarity.score,images:[previous.imageId,current.imageId],reportCount:relatedReports.length,reportBasis});
+      }
+      previous=current;
+    }
+  }
+  return {items:items.sort((a,b)=>b.similarity-a.similarity||b.days-a.days),duplicatesExcluded,compared:candidates.length};
+}
+

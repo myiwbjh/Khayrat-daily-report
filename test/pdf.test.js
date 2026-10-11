@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parsePDF, mapPDFText } from '../src/pdf.js';
 import { EvidenceStore } from '../src/storage.js';
-import { analyzeImageMetadata, findEvidenceConflicts, summarizeImageEvidence } from '../src/image-analysis.js';
+import { analyzeImageMetadata, detectSuspectedStagnation, findEvidenceConflicts, summarizeImageEvidence } from '../src/image-analysis.js';
 import { parseWithPDFJS, OCRProvider } from '../src/pdfjs-adapter.js';
 
 class MemoryStorage { constructor(){this.data=new Map()} getItem(k){return this.data.get(k)??null} setItem(k,v){this.data.set(k,v)} }
@@ -19,6 +19,16 @@ test('dashboard image summary counts evidence without inventing numeric progress
   {imageId:'c',relatedDate:'2026-09-30',relatedWorkshop:'磨房'},
   {imageId:'logo',ignored:true,visionEnabled:true,scene:'无法判断'},
 ],{date:'2026-09-30',workshop:'磨房'});assert.deepEqual({total:summary.total,analyzed:summary.analyzed,linked:summary.linked,pending:summary.pending,review:summary.review,conflicts:summary.conflicts},{total:3,analyzed:2,linked:1,pending:1,review:1,conflicts:1});assert.deepEqual(summary.sceneCounts,[['施工中',1],['材料堆放',1]]);});
+test('similar cross-date photos only create a suspected-stagnation review signal',()=>{
+ const common={relatedWorkshop:'污水处理',relatedProcess:'土方',visionEnabled:true,scene:'施工中',stage:'土方开挖阶段',structures:['两个矩形基坑','周边土方堆'],activities:['场地开挖和平整'],visibleFacts:['俯瞰土质场地，可见两个矩形基坑','地面有密集机械履带痕迹']};
+ const images=[{...common,imageId:'a',contentSignature:'one',relatedDate:'2026-08-29'},{...common,imageId:'b',contentSignature:'two',relatedDate:'2026-09-16',visibleFacts:[...common.visibleFacts,'基坑边缘有少量渣土']}],records=[{date:'2026-09-16',workshop:'污水处理',process:'土方',status:'施工中',constructionContent:'土石方施工进行中'}];
+ const result=detectSuspectedStagnation(images,records);assert.equal(result.items.length,1);assert.equal(result.items[0].classification,'疑似停滞');assert.equal(result.items[0].stopDetermination,false);assert.match(result.items[0].reportBasis,/日报仍记录施工中/);
+});
+test('same photo is excluded and scene labels alone are never independent stagnation evidence',()=>{
+ const duplicate={relatedWorkshop:'磨房',relatedProcess:'基础',visionEnabled:true,scene:'施工中',stage:'基础施工',structures:['基础梁'],activities:['钢筋绑扎'],visibleFacts:['同一画面'],contentSignature:'same'};
+ const repeated=detectSuspectedStagnation([{...duplicate,imageId:'a',relatedDate:'2026-09-01'},{...duplicate,imageId:'b',relatedDate:'2026-09-20'}]);assert.equal(repeated.items.length,0);assert.equal(repeated.duplicatesExcluded,1);
+ const sceneOnly=detectSuspectedStagnation([{imageId:'c',relatedDate:'2026-09-01',relatedWorkshop:'磨房',visionEnabled:true,scene:'施工中'},{imageId:'d',relatedDate:'2026-09-20',relatedWorkshop:'磨房',visionEnabled:true,scene:'施工中'}]);assert.equal(sceneOnly.items.length,0);
+});
 test('PDF.js adapter preserves page location and marks missing fields for review',async()=>{const pdfjs={getDocument:()=>({promise:Promise.resolve({numPages:2,getPage:async page=>({getTextContent:async()=>({items:page===1?[{str:'Date: 2026-09-07',transform:[1,0,0,1,10,100]},{str:'Workshop: Grinding',transform:[1,0,0,1,10,90]},{str:'Process: Foundation',transform:[1,0,0,1,10,80]}]:[]})})})})};const result=await parseWithPDFJS(new ArrayBuffer(1),'real.pdf',{pdfjs});assert.equal(result.diagnostics.engine,'PDF.js');assert.equal(result.pages.length,2);assert.equal(result.records[0].sourceLocation.pageNumber,1);assert.ok(result.diagnostics.warnings[0].includes('未授权 OCR'));});
 test('OCR provider requires consent and backend configuration',async()=>{await assert.rejects(()=>new OCRProvider({endpoint:'/ocr',consent:false}).recognize({},{}),/授权/);await assert.rejects(()=>new OCRProvider({consent:true}).recognize({},{}),/配置/);});
 
