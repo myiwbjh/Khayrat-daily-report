@@ -63,6 +63,13 @@ test('free quota exhaustion stops after one request without paid fallback or aut
   for(const invalid of [{...result,confidence:3},{...result,visibleFacts:'invented'},{...result,scene:'停工'},{}])
     await assert.rejects(()=>visionImage('', '', VISION_SCHEMA,{env,fetchImpl:async()=>completion(invalid)}),e=>e.status===502);
 });
+test('single configured free model gets a longer bounded timeout and an accurate failure message',async()=>{
+ const original=AbortSignal.timeout;let timeoutMs;
+ AbortSignal.timeout=ms=>{timeoutMs=ms;return new AbortController().signal;};
+ try{await assert.rejects(()=>visionImage('', '', VISION_SCHEMA,{env,fetchImpl:async()=>{throw Object.assign(new Error('timed out'),{name:'TimeoutError'});}}),error=>error.status===429&&/当前免费视觉服务暂时无响应/.test(error.message)&&error.attempts[0].errorReason==='timeout');}
+ finally{AbortSignal.timeout=original;}
+ assert.ok(timeoutMs>=24000&&timeoutMs<=25000);
+});
 test('public free configuration exposes destination and limit only, never either API key or allowlist; OCR remains off', async () => {
   await withEnv(async()=>{const res=sink();configHandler({},res);
     assert.equal(res.value.visionEnabled,true);assert.equal(res.value.visionProviderId,'groq');assert.equal(res.value.visionModel,GROQ_MODEL);
