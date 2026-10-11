@@ -32,19 +32,23 @@ export class SupabaseCloudRepository{
   async saveProgressWorkbook(file,parsed){
     this.assertProject(parsed.records);const existing=await this.findProgressBatch(parsed.batch.fileHash);if(existing?.import_status==='complete')return {duplicate:true,batch:existing};
     const originalObjectPath=await this.uploadOriginal(file,parsed.batch.id);
-    const body={id:parsed.batch.id,project_id:this.projectId,file_hash:parsed.batch.fileHash,source_file:file.name,original_object_path:originalObjectPath,current_version:false,plan_version:parsed.batch.currentPlanVersion,plan_sheet:parsed.batch.currentPlanSheet,actual_sheet:parsed.batch.actualSheet,quality_status:parsed.batch.qualityStatus,import_status:'importing',metadata:{...parsed.batch,resumedFromIncomplete:Boolean(existing),previousImportedAt:existing?.imported_at||null},imported_at:existing?.imported_at||parsed.batch.importedAt,updated_at:new Date().toISOString()};
+    const body={id:parsed.batch.id,project_id:this.projectId,file_hash:parsed.batch.fileHash,source_file:file.name,original_object_path:originalObjectPath,current_version:false,plan_version:parsed.batch.currentPlanVersion,plan_sheet:parsed.batch.currentPlanSheet,actual_sheet:parsed.batch.actualSheet,quality_status:parsed.batch.qualityStatus,import_status:'importing',metadata:{...parsed.batch,resumedFromIncomplete:Boolean(existing),previousImportedAt:existing?.imported_at||null},imported_at:parsed.batch.importedAt,updated_at:new Date().toISOString()};
     await this.request('/rest/v1/progress_import_batches?on_conflict=project_id,file_hash',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify(body)});
     const auditId=crypto.randomUUID();
-    await this.saveProjectData('progress',parsed.records,{auditId,sourceFile:file.name,auditResult:{progressBatchId:parsed.batch.id,fileHash:parsed.batch.fileHash,resumedFromIncomplete:Boolean(existing)}});
-    await this.request(`/rest/v1/progress_import_batches?project_id=eq.${encodeURIComponent(this.projectId)}&current_version=eq.true&id=neq.${encodeURIComponent(parsed.batch.id)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_version:false,updated_at:new Date().toISOString()})});
-    await this.request(`/rest/v1/progress_import_batches?id=eq.${encodeURIComponent(parsed.batch.id)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_version:true,import_status:'complete',updated_at:new Date().toISOString()})});
+    try{
+      await this.saveProjectData('progress',parsed.records,{auditId,sourceFile:file.name,auditResult:{progressBatchId:parsed.batch.id,fileHash:parsed.batch.fileHash,resumedFromIncomplete:Boolean(existing)}});
+      await this.request('/rest/v1/rpc/activate_progress_import_batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target_project_id:this.projectId,target_batch_id:parsed.batch.id})});
+    }catch(error){
+      await this.request(`/rest/v1/progress_import_batches?id=eq.${encodeURIComponent(parsed.batch.id)}&current_version=eq.false`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({import_status:'failed',updated_at:new Date().toISOString()})}).catch(()=>{});throw error;
+    }
     return {duplicate:false,auditId,resumed:Boolean(existing),batch:{...body,current_version:true,import_status:'complete'}};
   }
   async loadProject(){
     const read=async table=>{const rows=[];for(let offset=0;;offset+=500){const response=await this.request(`/rest/v1/${table}?project_id=eq.${encodeURIComponent(this.projectId)}&select=*&order=${table==='image_evidence'?'image_id':'id'}&offset=${offset}&limit=500`);const page=await response.json();if(!Array.isArray(page))throw new Error('云端数据格式错误');rows.push(...page);if(page.length<500)break;}return rows;};
     const unavailableTables=[];const readProject=async table=>{try{return await read(table);}catch(error){if(['42P01','PGRST205'].includes(error.code)&&error.detail.includes(table)){unavailableTables.push(table);return [];}throw error;}};
     const [reports,images,progress,shipments,mappings,progressBatches]=await Promise.all([read('daily_reports'),read('image_evidence'),readProject('progress_measurements'),readProject('equipment_shipments'),readProject('crosswalk_mappings'),readProject('progress_import_batches')]);
-    return {unavailableTables,records:reports.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),images:images.map(i=>({...i.payload,imageId:i.image_id,projectId:i.project_id})),progress:progress.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),shipments:shipments.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),mappings:mappings.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),progressBatches};
+    const batchesById=new Map(progressBatches.map(batch=>[batch.id,batch]));
+    return {unavailableTables,records:reports.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),images:images.map(i=>({...i.payload,imageId:i.image_id,projectId:i.project_id})),progress:progress.map(r=>{const batch=batchesById.get(r.import_batch_id||r.payload?.importBatchId);return {...r.payload,id:r.id,projectId:r.project_id,...(batch?{importedAt:batch.imported_at,batchCurrentVersion:batch.current_version,batchImportStatus:batch.import_status}:{}),};}),shipments:shipments.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),mappings:mappings.map(r=>({...r.payload,id:r.id,projectId:r.project_id})),progressBatches};
   }
 
 }
