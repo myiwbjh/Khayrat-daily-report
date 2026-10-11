@@ -36,6 +36,7 @@ export default async function handler(request, response) {
         reviewRecommended: true,
       });
   } catch (error) {
+    if(error.attempts?.length)console.warn('vision_failed',error.attempts.map(({provider,model,errorReason,httpStatus})=>({provider,model,errorReason,httpStatus:httpStatus||null})));
     return response
       .status(error.status || 502)
       .json({ error: error.status ? error.message : "AI service unavailable" });

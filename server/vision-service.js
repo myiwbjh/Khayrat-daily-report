@@ -284,11 +284,12 @@ async function geminiImage(dataUrl,context,schema,provider,options){
  const b=await r.json(),c=b.candidates?.[0];if(c?.finishReason!=='STOP')throw new ApiError(502,'Incomplete AI result; manual review required');let result;try{result=JSON.parse(c.content.parts.filter(p=>!p.thought).map(p=>p.text||'').join(''));}catch{throw new ApiError(502,'Invalid AI result');}validateVision(result);return {result,provider:provider.name,model:provider.model,usage:b.usageMetadata||null,analyzedAt:new Date().toISOString()};
 }
 export async function visionImage(dataUrl,context,schema,options={}){
- const env=options.env||process.env,chain=freeProviderChain(env),attempts=[];const deadline=Date.now()+40000;
+ const env=options.env||process.env,chain=freeProviderChain(env),attempts=[];const deadline=Date.now()+55000,attemptLimit=chain.length===1?25000:13000;
  for(const provider of chain){const startedAt=new Date().toISOString();try{
-   const timeoutMs=Math.max(1,Math.min(10000,deadline-Date.now()));if(deadline<=Date.now())throw Object.assign(new ApiError(504,'Timeout'),{fallbackEligible:true});
+   const timeoutMs=Math.max(1,Math.min(attemptLimit,deadline-Date.now()));if(deadline<=Date.now())throw Object.assign(new ApiError(504,'Timeout'),{fallbackEligible:true});
    const value=provider.id==='gemini'?await geminiImage(dataUrl,context,schema,provider,{...options,timeoutMs}):await singleVisionImage(dataUrl,context,schema,{...options,timeoutMs});
    attempts.push({provider:provider.id,model:provider.model,startedAt,finishedAt:new Date().toISOString(),status:'success',usage:value.usage||null});return {...value,fallback:attempts.length>1,attempts};
  }catch(e){const transient=e.fallbackEligible===true||['TimeoutError','AbortError'].includes(e.name);attempts.push({provider:provider.id,model:provider.model,startedAt,finishedAt:new Date().toISOString(),status:'failed',errorReason:transient?(e.status===429?'rate-limit-or-free-quota':e.status>=500?'provider-server-error':['TimeoutError','AbortError'].includes(e.name)?'timeout':'model-unavailable'):e.message,httpStatus:e.status||null,usage:null});if(!transient){e.attempts=attempts;throw e;}}}
- throw Object.assign(new ApiError(429,'所有免费视觉服务当前均不可用，请稍后重试。未产生付费调用。'),{attempts});
+ const message=chain.length>1?'所有已配置的免费视觉服务当前均不可用，请稍后重试。未产生付费调用。':'当前免费视觉服务暂时无响应，请稍后重试。未产生付费调用。';
+ throw Object.assign(new ApiError(429,message),{attempts});
 }

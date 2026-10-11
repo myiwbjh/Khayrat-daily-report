@@ -24,6 +24,6 @@ export function summarizeImageEvidence(images,{date='',workshop='',process=''}={
   const analyzed=relevant.filter(i=>i.visionEnabled||i.manualReviewed),linked=relevant.filter(i=>i.relatedRecordId||i.relatedRecordKey||i.association?.status?.startsWith('linked'));
   const conflicts=relevant.filter(i=>i.crossValidation?.status==='potential-conflict');
   const scenes=new Map();for(const image of analyzed){const scene=image.scene||'无法判断';scenes.set(scene,(scenes.get(scene)||0)+1);}
-  return {total:relevant.length,analyzed:analyzed.length,linked:linked.length,pending:relevant.length-analyzed.length,review:relevant.filter(i=>i.reviewRecommended&&!i.manualReviewed).length,conflicts:conflicts.length,sceneCounts:[...scenes].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])),conflictItems:conflicts};
+  return {total:relevant.length,analyzed:analyzed.length,linked:linked.length,pending:relevant.length-analyzed.length,review:relevant.filter(i=>i.reviewRecommended&&!i.manualReviewed).length,conflicts:conflicts.length,sceneCounts:[...scenes].sort((a,b)=>b[1]-a[1]||SCENES.indexOf(a[0])-SCENES.indexOf(b[0])),conflictItems:conflicts};
 }
 

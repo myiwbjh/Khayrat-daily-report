@@ -2,6 +2,7 @@ import {analyzeRecords,filterRecords} from './src/analytics.js';
 import {latestWorkshopStates} from './src/workshop-status.js';
 import {compareReports} from './src/comparison.js';
 import {summarizeProgress,crossAnalyze} from './src/project-data.js';
+import {renderWorkforceChart} from './src/workforce-chart.js';
 const $=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
 const pct=v=>Number.isFinite(v)?`${v.toFixed(1)}%`:'待核';
@@ -47,7 +48,7 @@ function render(){
  table(panel(progressView,'专业进度'),['专业','专业内部计划完成率','专业内部实际完成率','对项目贡献'],(p.disciplines||[]).map(r=>[r.name,pct(r.plannedCompletion),pct(r.actualCompletion),pct(r.contributionToProject)]));
  table(panel(progressView,'WBS 明细 · 月末口径'),['WBS','工作项','专业','月份','权重','计划累计','实际累计','计划总量','跟踪总量','复核状态'],(p.latest||[]).map(r=>[r.wbs,r.item,r.discipline,r.month,r.weight,pct(r.plannedCumulativePct),pct(r.actualCumulativePct),`${display(r.baselineTotal??r.total)} ${r.unit||''}`,`${display(r.trackingTotal)} ${r.unit||''}`,r.quantityMismatch?'To Be Verified':r.stale?'数据过期':'按当前基准计算']),{empty:hasRows?'该日期暂无完整月末数据':'暂无 WBS 明细；需发布最新完整看板'});
  for(const issue of p.qualityIssues||[])progressView.append(node('p',`${issue.wbs} ${issue.item||''}：计划基准 ${issue.baselineTotal} / 实际跟踪 ${issue.trackingTotal} ${issue.unit||''} · To Be Verified`,'notice'));
- const people=section('people');chart(panel(people,'人员趋势'),workforce,['chinese','local'],['中方','属地'],{percent:false});table(people,['日期','中方','属地','合计','复核状态'],workforce.map(r=>[r.date,r.chinese,r.local,r.total,r.needsReview?'待复核':'已按报告口径统计']));
+ const people=section('people'),peoplePanel=panel(people,'人员投入变化');peoplePanel.insertAdjacentHTML('beforeend',renderWorkforceChart(workforce));table(people,['日期','中方','属地','合计','复核状态'],workforce.map(r=>[r.date,r.chinese,r.local,r.total,r.needsReview?'待复核':'已按报告口径统计']));
  const equipment=section('equipment');table(panel(equipment,'日报设备状态'),['设备','最新状态','车间'],(analytics.equipment||[]).map(r=>[r.name,r.status,r.workshop]));
  table(panel(equipment,'设备物流 / 发运批次'),['设备类别','设备','供应商','Package / Lot','发运批次','数量','发货','POL / POD','ETA','到港','清关','现场到货','状态','安装区域'],(data.shipments||[]).map(r=>[r.category,r.equipmentName,r.supplier,r.packageLot,r.shipmentBatch,`${display(r.quantity)} ${r.unit||''}`,r.shippingDate,`${r.pol||''} / ${r.pod||''}`,r.eta,r.arrivalDate,r.customsStatus,r.siteArrivalDate,r.status,r.installationArea]),{empty:'设备物流尚未录入真实数据'});
  const crosswalk=section('crosswalk');table(crosswalk,['来源类型','来源值','目标类型','目标值','关系','备注'],(data.mappings||[]).map(r=>[r.sourceType,r.sourceValue,r.targetType,r.targetValue,r.relation,r.note]),{empty:'Crosswalk 尚未录入映射数据'});
