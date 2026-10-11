@@ -38,6 +38,16 @@ test('visible active work in a linked photo blocks escalation from conflicting n
  const item=analyzeWorkshopStoppageEvidence(rows,images)[0];assert.notEqual(item.current.status,'高度疑似停工');assert.equal(item.current.status,'数据不足');
 });
 
+test('reviewed text, negated stoppage and another active process cannot confirm a workshop stop',()=>{
+ const reviewed=analyzeWorkshopStoppageEvidence([report('2026-10-10',{status:'停工',constructionContent:'',reviewFields:['status']})])[0],negated=analyzeWorkshopStoppageEvidence([report('2026-10-10',{constructionContent:'未停工，持续浇筑施工。'})])[0],mixed=analyzeWorkshopStoppageEvidence([report('2026-10-10',{id:'stopped',process:'土方',status:'停工',constructionContent:'土方停工。'}),report('2026-10-10',{id:'active',process:'混凝土',status:'施工中',constructionContent:'底板混凝土浇筑施工。'})])[0];
+ assert.notEqual(reviewed.current.status,'确认停工');assert.equal(negated.current.status,'正常施工');assert.equal(mixed.current.status,'正常施工');
+});
+
+test('a selected process never receives photo evidence from another process',()=>{
+ const dates=['2026-10-01','2026-10-10'],rows=dates.map(date=>report(date,{process:'土方',constructionContent:'现场巡视。'})),images=dates.map((date,index)=>photo(date,`other-${index}`,{relatedProcess:'钢筋'})),item=analyzeWorkshopStoppageEvidence(rows,images,{process:'土方'})[0];
+ assert.ok(!item.current.categories.includes('photo'));assert.deepEqual(item.current.photoIds,[]);
+});
+
 test('real Khayrat report excerpts preserve suspected, recovered and waiting distinctions',()=>{
  const real=[
   ...['2026-09-30','2026-10-07','2026-10-10'].map(date=>report(date,{id:`clinker-${date}`,workshop:'熟料输送',process:'未报告工序',status:'当日暂无人员施工',constructionContent:'今日暂无人员施工。'})),
