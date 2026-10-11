@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {parseKhayratProgressWorkbook} from '../src/xlsx.js';
+import {parseKhayratProgressWorkbook,TEMPORARY_PROGRESS_BASELINES} from '../src/xlsx.js';
 import {analyzeProgress,currentProgressRows,summarizeProgress} from '../src/project-data.js';
 import {SupabaseCloudRepository} from '../src/cloud.js';
 
@@ -20,15 +20,17 @@ test('real Khayrat workbook identifies sheets, current V1 and historical V0',asy
 
 test('real workbook recomputes WBS quantities and cross-checks cached Excel totals',async()=>{
  const parsed=await parse(),result=analyzeProgress(parsed.records,{asOf:'2026-10-06'});
- close(result.planned,29.468854772678302);close(result.actual,13.325019607843137);close(result.variance,-16.143835164835167);close(result.plannedMonthly,13.79865869424693);close(result.actualMonthly,4.069133333333333);
- assert.equal(parsed.validation.planMatches,true);assert.equal(parsed.validation.sourceActualMatches,true);close(parsed.validation.reportedActualPct,20.7490196078431);close(parsed.validation.computedSourceActualPct,20.749019607843138);close(parsed.validation.computedActualPct,13.325019607843137);
+ close(result.planned,44.538854772678306);close(result.actual,20.749019607843138);close(result.variance,-23.789835164835168);close(result.plannedMonthly,19.865325360913598);close(result.actualMonthly,6.3229999999999995);
+ assert.equal(parsed.validation.planMatches,true);assert.equal(parsed.validation.sourceActualMatches,true);close(parsed.validation.reportedActualPct,20.7490196078431);close(parsed.validation.computedSourceActualPct,20.749019607843138);close(parsed.validation.computedActualPct,13.325019607843137);close(parsed.validation.computedManagementActualPct,20.749019607843138);
  assert.deepEqual(parsed.quantityMismatches.map(row=>[row.wbs,row.baselineTotal,row.trackingTotal,row.status]),[['1.2',10000,6000,'To Be Verified'],['1.3',1200,800,'To Be Verified']]);
- const concrete=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M6');assert.equal(concrete.plannedMonthlyQuantity,2500);assert.equal(concrete.actualMonthlyQuantity,794);close(concrete.actualCumulativePct,28.8);close(concrete.sourceActualCumulativePct,48);
+ const concrete=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M6'),rebar=parsed.currentRecords.find(row=>row.wbs==='1.3'&&row.period==='M6');assert.equal(concrete.plannedMonthlyQuantity,2500);assert.equal(concrete.actualMonthlyQuantity,794);assert.equal(concrete.baselineTotal,10000);assert.equal(concrete.managementBaselineTotal,6000);assert.equal(rebar.baselineTotal,1200);assert.equal(rebar.managementBaselineTotal,800);close(concrete.actualCumulativePct,48);close(concrete.excelActualCumulativePct,28.8);
+ assert.ok(parsed.qualityIssues.some(issue=>issue.wbs==='1.2'&&issue.type==='temporary-baseline-plan'&&issue.difference===-4000));assert.ok(parsed.qualityIssues.every(issue=>issue.status==='To Be Verified'));
+ assert.deepEqual(TEMPORARY_PROGRESS_BASELINES.map(item=>[item.key,item.wbs,item.total]),[['concrete','1.2',6000],['rebar','1.3',800]]);
 });
 
 test('zero-weight leaf is excluded without double counting and disciplines keep both metrics',async()=>{
  const parsed=await parse(),summary=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),civil=summary.disciplines.find(row=>row.name==='土建工程');
- assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,26.650039215686274);close(civil.contributionToProject,13.325019607843137);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
+ assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,41.498039215686276);close(civil.contributionToProject,20.749019607843138);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
  assert.equal(summary.lagging[0].wbs,'1.7');assert.equal(summary.lagging[1].wbs,'1.2');
 });
 
@@ -36,7 +38,27 @@ test('same file hash is stable and a newer batch becomes current while the old s
  const first=await parse(),again=await parse();assert.equal(first.batch.id,again.batch.id);assert.equal(first.batch.fileHash,again.batch.fileHash);
  const previous=first.currentRecords.map(row=>({...row,importBatchId:'progress:khayrat:previous',fileHash:'0'.repeat(64),importedAt:'2026-09-30T00:00:00Z',actualCumulativePct:Number.isFinite(row.actualCumulativePct)?Math.max(0,row.actualCumulativePct-2):null}));
  assert.equal(new Set([...previous,...first.records].map(row=>row.importBatchId)).size,2);assert.equal(currentProgressRows([...previous,...first.records])[0].importBatchId,first.batch.id);
- const summary=summarizeProgress([...previous,...first.records],{asOf:'2026-10-06'});assert.ok(summary.versionDiff);assert.equal(summary.versionDiff.previous.id,'progress:khayrat:previous');assert.ok(summary.versionDiff.actualChange>0);
+ const summary=summarizeProgress([...previous,...first.records],{asOf:'2026-10-06'});assert.ok(summary.versionDiff);assert.equal(summary.versionDiff.previous.id,'progress:khayrat:previous');assert.deepEqual(summary.versionDiff.wbsAdded,[]);assert.deepEqual(summary.versionDiff.wbsRemoved,[]);assert.ok(summary.versionDiff.actualChange>0);
+});
+
+test('refresh honors the completed current batch and ignores newer failed or importing uploads',async()=>{
+ const parsed=await parse(),old=parsed.currentRecords.map(row=>({...row,importBatchId:'old',fileHash:'1'.repeat(64),importedAt:'2026-10-01T00:00:00Z',batchCurrentVersion:true,batchImportStatus:'complete'})),failed=parsed.currentRecords.map(row=>({...row,importBatchId:'failed',fileHash:'2'.repeat(64),importedAt:'2026-10-03T00:00:00Z',batchCurrentVersion:false,batchImportStatus:'failed'})),uploading=parsed.currentRecords.map(row=>({...row,importBatchId:'uploading',fileHash:'3'.repeat(64),importedAt:'2026-10-04T00:00:00Z',batchCurrentVersion:false,batchImportStatus:'importing'}));
+ const before=[...old,...failed,...uploading],beforeSummary=summarizeProgress(before,{asOf:'2026-10-06'});assert.equal(currentProgressRows(before)[0].importBatchId,'old');assert.ok(beforeSummary.selected.every(row=>row.importBatchId==='old'));
+ const activated=failed.map(row=>({...row,batchCurrentVersion:true,batchImportStatus:'complete'})),retired=old.map(row=>({...row,batchCurrentVersion:false})),after=[...retired,...activated,...uploading],afterSummary=summarizeProgress(after,{asOf:'2026-10-06'});assert.equal(currentProgressRows(after)[0].importBatchId,'failed');assert.ok(afterSummary.selected.every(row=>row.importBatchId==='failed'));assert.equal(afterSummary.timeline.length,new Set(activated.map(row=>row.month)).size);
+});
+
+test('failed upload never replaces current batch and a retry activates it atomically',async()=>{
+ const parsed=await parse(),state={candidate:null,oldCurrent:true,saveAttempts:0,activations:0};
+ class RetryRepository extends SupabaseCloudRepository{
+  async findProgressBatch(){return state.candidate;}
+  async uploadOriginal(){return'khayrat/new.xlsx';}
+  async saveProjectData(){state.saveAttempts++;if(state.saveAttempts===1)throw new Error('simulated write failure');return {auditId:'retry-audit'};}
+  async request(path,options={}){const body=options.body?JSON.parse(options.body):{};if(path.startsWith('/rest/v1/progress_import_batches?on_conflict')){state.candidate={...body};return {ok:true,json:async()=>({})};}if(path.startsWith('/rest/v1/progress_import_batches?id=')){Object.assign(state.candidate,body);return {ok:true,json:async()=>({})};}if(path==='/rest/v1/rpc/activate_progress_import_batch'){state.oldCurrent=false;state.candidate.current_version=true;state.candidate.import_status='complete';state.activations++;return {ok:true,json:async()=>({})};}throw new Error(`unexpected ${path}`);}
+ }
+ const repo=new RetryRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public',storageBucket:'reports'},{accessToken:'jwt'}),file=new Blob(['xlsx']);Object.defineProperty(file,'name',{value:'retry.xlsx'});
+ await assert.rejects(repo.saveProgressWorkbook(file,parsed),/simulated write failure/);assert.equal(state.oldCurrent,true);assert.equal(state.candidate.current_version,false);assert.equal(state.candidate.import_status,'failed');assert.equal(state.activations,0);
+ const retry=await repo.saveProgressWorkbook(file,parsed);assert.equal(retry.resumed,true);assert.equal(state.oldCurrent,false);assert.equal(state.candidate.current_version,true);assert.equal(state.candidate.import_status,'complete');assert.equal(state.activations,1);
+ const duplicate=await repo.saveProgressWorkbook(file,parsed);assert.equal(duplicate.duplicate,true);assert.equal(state.activations,1);
 });
 
 test('an incomplete text batch retries with a separate UUID audit and idempotent WBS upserts',async()=>{
@@ -49,6 +71,7 @@ test('an incomplete text batch retries with a separate UUID audit and idempotent
   if(table==='progress_import_batches'&&options.method==='PATCH'){if(parsedUrl.searchParams.get('id')===`eq.${state.batch.id}`)Object.assign(state.batch,body);return response();}
   if(table==='progress_measurements'){for(const row of body)state.measurements.set(row.id,row);return response();}
   if(table==='import_audits'){state.audits.push(body);return response();}
+  if(parsedUrl.pathname.endsWith('/rpc/activate_progress_import_batch')){state.batch.current_version=true;state.batch.import_status='complete';return response();}
   throw new Error(`unexpected ${options.method||'GET'} ${url}`);
  };
  const repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public',storageBucket:'reports'},{accessToken:'jwt',fetchImpl}),file=new Blob(['xlsx'],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});Object.defineProperty(file,'name',{value:'Khayrat.xlsx'});
