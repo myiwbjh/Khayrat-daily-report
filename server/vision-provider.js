@@ -30,7 +30,7 @@ export function requireProviderConsent(body, env = process.env) {
 }
 
 
-export const GEMINI_MODELS=['gemini-3.8-flash','gemini-3.5-flash-lite','gemini-3.7-flash'];
+export const GEMINI_MODELS=['gemini-3.8-flash','gemini-3.5-flash-lite','gemini-3.6-flash'];
 export function freeProviderChain(env=process.env){
  const primary=visionProvider(env);if(primary.id!=='groq')return [primary];
  // Verified 2026-10-07 against official pricing/model docs. Never infer free from a model name.
