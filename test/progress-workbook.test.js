@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {parseKhayratProgressWorkbook} from '../src/xlsx.js';
+import {parseKhayratProgressWorkbook,TEMPORARY_PROGRESS_BASELINES} from '../src/xlsx.js';
 import {analyzeProgress,currentProgressRows,summarizeProgress} from '../src/project-data.js';
 import {SupabaseCloudRepository} from '../src/cloud.js';
 
@@ -25,6 +25,7 @@ test('real workbook recomputes WBS quantities and cross-checks cached Excel tota
  assert.deepEqual(parsed.quantityMismatches.map(row=>[row.wbs,row.baselineTotal,row.trackingTotal,row.status]),[['1.2',10000,6000,'To Be Verified'],['1.3',1200,800,'To Be Verified']]);
  const concrete=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M6'),rebar=parsed.currentRecords.find(row=>row.wbs==='1.3'&&row.period==='M6');assert.equal(concrete.plannedMonthlyQuantity,2500);assert.equal(concrete.actualMonthlyQuantity,794);assert.equal(concrete.baselineTotal,10000);assert.equal(concrete.managementBaselineTotal,6000);assert.equal(rebar.baselineTotal,1200);assert.equal(rebar.managementBaselineTotal,800);close(concrete.actualCumulativePct,48);close(concrete.excelActualCumulativePct,28.8);
  assert.ok(parsed.qualityIssues.some(issue=>issue.wbs==='1.2'&&issue.type==='temporary-baseline-plan'&&issue.difference===-4000));assert.ok(parsed.qualityIssues.every(issue=>issue.status==='To Be Verified'));
+ assert.deepEqual(TEMPORARY_PROGRESS_BASELINES.map(item=>[item.key,item.wbs,item.total]),[['concrete','1.2',6000],['rebar','1.3',800]]);
 });
 
 test('zero-weight leaf is excluded without double counting and disciplines keep both metrics',async()=>{

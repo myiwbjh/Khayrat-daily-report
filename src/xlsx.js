@@ -22,10 +22,10 @@ function periods(sheet){const dates=sheet.rows[2]||[],labels=sheet.rows[3]||[],o
 const same=(a,b,tolerance=1e-9)=>a==null&&b==null||Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=tolerance||String(a)===String(b);
 const normalizedUnit=value=>{const unit=text(value).toLowerCase().replace(/[\s·]/g,'');if(['m³','m3','m^3','立方米'].includes(unit))return'm3';if(['t','吨','ton','tons','tonne','tonnes'].includes(unit))return't';return unit;};
 export const TEMPORARY_PROGRESS_BASELINES=Object.freeze([
-  {key:'concrete',label:'混凝土',match:/混凝土/,total:6000,unit:'m3'},
-  {key:'rebar',label:'钢筋',match:/钢筋/,total:800,unit:'t'}
+  {key:'concrete',label:'混凝土',wbs:'1.2',match:/混凝土/,total:6000,unit:'m3'},
+  {key:'rebar',label:'钢筋',wbs:'1.3',match:/钢筋/,total:800,unit:'t'}
 ]);
-const temporaryBaseline=item=>TEMPORARY_PROGRESS_BASELINES.find(entry=>entry.match.test(item.item)&&normalizedUnit(item.unit)===entry.unit)||null;
+const temporaryBaseline=item=>TEMPORARY_PROGRESS_BASELINES.find(entry=>item.wbs===entry.wbs&&entry.match.test(item.item)&&normalizedUnit(item.unit)===entry.unit)||null;
 function workbookQualityIssues(plan,actual){
   const planItems=sheetItems(plan),actualItems=sheetItems(actual),trackedByWbs=new Map(actualItems.map(item=>[item.wbs,item])),planPeriods=periods(plan),issues=[];
   const duplicates=(items,source)=>{const counts=new Map();for(const item of items)counts.set(item.wbs,(counts.get(item.wbs)||0)+1);for(const [wbs,count] of counts)if(count>1)issues.push({type:'duplicate-wbs',wbs,reason:`${source}存在 ${count} 条重复 WBS`,difference:count-1,status:'To Be Verified'});};
