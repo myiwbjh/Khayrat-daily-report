@@ -114,6 +114,7 @@ test('MOCK vision consent gates authenticated ID-only request; human correction 
 
 test('PDF upload can analyze effective photos and update dashboard evidence summary',async({page})=>{
   const state=await sandbox(page,{visionEnabled:true,freeVision:true,visionInterval:0});await login(page);
+  await page.getByRole('link',{name:'数据导入与工程量'}).click();
   await expect(page.locator('#analyzeAfterImport')).toBeEnabled();await page.locator('#analyzeAfterImport').check();await upload(page);
   await expect(page.locator('#importSummary')).toContainText('上传后将自动分析图片');await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();
   await expect.poll(()=>state.visionCalls.length,{timeout:30000}).toBe(4);await expect(page.locator('#photoKpi')).toHaveText('4/4');await expect(page.locator('#photoEvidenceSummary')).toContainText('材料堆放');

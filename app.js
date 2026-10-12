@@ -367,7 +367,7 @@ refreshVisionStatus();
 $('#closeImageDialog').onclick=()=>$('#imageDialog').close();['imageDate','imageWorkshop','imageProcess','imageSource','criticalOnly'].forEach(id=>$(`#${id}`).oninput=renderImages);$('#imageReset').onclick=()=>{$('#imageDate').value='';$('#imageWorkshop').value='';$('#imageProcess').value='';$('#imageSource').value='';$('#criticalOnly').checked=false;renderImages();};
 const pageRoutes={overview:{view:'overviewView'},entry:{view:'entryView'},compare:{view:'compareView'},images:{view:'imagesView'},workshops:{view:'overviewView',target:'workshops'},equipment:{view:'overviewView',target:'equipment'},risks:{view:'overviewView',target:'risks'},import:{view:'dataView',target:'import'},projectData:{view:'dataView',target:'projectData'},evidence:{view:'overviewView',target:'workshops',canonical:'workshops'}};
 function showPage(hash=location.hash,{updateHash=false}={}){
-  const key=String(hash||'#overview').replace(/^#/,'')||'overview',route=pageRoutes[key]||pageRoutes.overview,canonical=route.canonical||key;
+  const key=String(hash||'#overview').replace(/^#/,'')||'overview',matched=pageRoutes[key],route=matched||pageRoutes.overview,canonical=route.canonical||(matched?key:'overview');
   $$('.page-view').forEach(view=>view.hidden=view.id!==route.view);
   $$('[data-view]').forEach(link=>link.classList.toggle('active',link.getAttribute('href')===`#${canonical}`));
   if(route.view==='entryView')renderHistory();

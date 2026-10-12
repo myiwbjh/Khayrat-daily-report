@@ -24,4 +24,8 @@ test('navigation keeps every page isolated and resolves dashboard anchors',async
  await page.goto('/#evidence');
  await expect(page.locator('#overviewView')).toBeVisible();
  await expect(page).toHaveURL(/#workshops$/);
+ await page.goto('/#removed-link');
+ await expect(page.locator('#overviewView')).toBeVisible();
+ await expect(page.getByRole('link',{name:'工程总览'})).toHaveClass(/active/);
+ await expect(page).toHaveURL(/#overview$/);
 });
