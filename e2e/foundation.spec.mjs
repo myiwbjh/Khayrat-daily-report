@@ -6,7 +6,7 @@ const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'
 function token(exp=Math.floor(Date.now()/1000)+3600){return [Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url'),Buffer.from(JSON.stringify({...user,sub:user.id,exp,iat:Math.floor(Date.now()/1000)})).toString('base64url'),'synthetic-not-a-real-signature'].join('.');}
 function session(exp){return {access_token:token(exp),refresh_token:'synthetic-refresh-token',expires_in:3600,expires_at:exp||Math.floor(Date.now()/1000)+3600,token_type:'bearer',user};}
 async function sandbox(page,{configured=true,failUpload=false,failSave=false,visionEnabled=false,freeVision=false,visionInterval=61000,visionQuotaAfter=Infinity,failVerify=false,holdPassword=false}={}){
-  const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,verifications:[],refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[]};
+  const state={reports:[],images:[],audits:[],objects:new Map(),otp:null,verifications:[],refreshes:0,posts:0,failUpload,failSave,blocked:[],visionCalls:[],signedRequests:[]};
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());
     if(url.origin==='http://127.0.0.1:4173'){
@@ -24,7 +24,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
     if(url.pathname==='/auth/v1/user')return route.fulfill({json:user});
     if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
     if(url.pathname==='/auth/v1/token'){if(url.searchParams.get('grant_type')==='password'){state.passwordLogins=(state.passwordLogins||0)+1;if(holdPassword)await new Promise(resolve=>{state.releaseLogin=resolve;});if(failVerify)return route.fulfill({status:400,json:{error:'invalid_grant',error_description:'SYNTHETIC private password'}});return route.fulfill({json:session()});}state.refreshes++;return route.fulfill({json:session()});}
-    if(url.pathname.startsWith('/storage/v1/object/sign/'))return route.fulfill({json:{signedURL:'/object/signed-test/'+encodeURIComponent(url.pathname.replace('/storage/v1/object/sign/','/storage/v1/object/'))}});
+    if(url.pathname.startsWith('/storage/v1/object/sign/')){state.signedRequests.push(url.pathname);return route.fulfill({json:{signedURL:'/object/signed-test/'+encodeURIComponent(url.pathname.replace('/storage/v1/object/sign/','/storage/v1/object/'))}});}
     if(url.pathname.startsWith('/storage/v1/object/signed-test/')){
       const key=decodeURIComponent(url.pathname.slice('/storage/v1/object/signed-test/'.length)),object=state.objects.get(key);return route.fulfill({contentType:'image/png',body:object||Buffer.from('')});
     }
@@ -61,6 +61,10 @@ test('synthetic multilingual PDF extracts text and JPEG/Flate images, saves priv
   expect(state.reports.every(r=>r.id&&r.payload.provenance&&r.payload.originalObjectPath)).toBe(true);expect(state.images.every(i=>i.report_id&&i.payload.objectPath&&!i.payload.dataUrl&&!i.payload.signedUrl)).toBe(true);
   await page.getByRole('link',{name:'日报对比'}).click();await expect(page.locator('#comparisonRows')).toContainText('改善');await expect(page.locator('#comparisonRows')).toContainText('中方 +1');await expect(page.locator('#comparisonRows')).toContainText('当日工程量变化 +8');
   await page.reload();await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('#imageGallery img')).toHaveCount(4);await expect.poll(()=>page.locator('#imageGallery img').evaluateAll(imgs=>imgs.every(i=>i.complete&&i.naturalWidth>0))).toBe(true);expect(state.posts).toBe(3);expect(state.blocked).toEqual([]);
+});
+test('photo evidence requests only the current 20-item page and sorts newest dates first',async({page})=>{
+  const state=await sandbox(page);for(let index=0;index<45;index++){const imageId=`page-${String(index).padStart(2,'0')}`;state.images.push({image_id:imageId,project_id:'khayrat',updated_at:'2026-10-12T00:00:00Z',payload:{imageId,sourceFile:'daily.pdf',pageNumber:index+1,imageIndex:1,relatedDate:`2026-09-${String(index%30+1).padStart(2,'0')}`,relatedWorkshop:index%2?'粉磨车间':'原料车间',objectPath:`khayrat/import/evidence/${imageId}.png`,visionEnabled:true,scene:'施工中'}});}
+  await login(page);expect(state.signedRequests).toHaveLength(0);await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('[data-open-image]')).toHaveCount(20);await expect(page.locator('#imagePageStatus')).toContainText('第 1 / 3 页');await expect.poll(()=>state.signedRequests.length).toBe(20);await expect(page.locator('[data-open-image]').first()).toContainText('2026-09-30');await page.locator('#imageNext').click();await expect(page.locator('[data-open-image]')).toHaveCount(20);await expect.poll(()=>state.signedRequests.length).toBe(40);
 });
 test('upload failure retains pending batch, retry saves once and duplicate import does not overwrite reports',async({page})=>{
   const state=await sandbox(page,{failUpload:true});await login(page);await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#confirmImport')).toContainText('重试');expect(state.reports).toHaveLength(0);await expect(page.locator('#dataStatus')).toContainText('尚未导入');
