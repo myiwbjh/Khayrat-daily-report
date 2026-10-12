@@ -1,4 +1,6 @@
 export const SCENES=['施工中','停工或无明显施工','材料堆放','设备到货','安装准备','已完成区域','无法判断'];
+export const imageUploadTime=image=>String(image.uploadedAt||image.createdAt||image.updatedAt||image.analyzedAt||'');
+export function sortImageEvidence(images){return [...images].sort((left,right)=>{const leftDate=left.relatedDate||'',rightDate=right.relatedDate||'';if(leftDate!==rightDate)return rightDate.localeCompare(leftDate);const stamp=imageUploadTime(right).localeCompare(imageUploadTime(left));return stamp||String(right.imageId).localeCompare(String(left.imageId));});}
 // Text is evidence of what the report says, never evidence of pixels or attendance.
 export function analyzeImageMetadata(image){return {tags:[],aiSummary:image.nearbyText?'已关联日报原文；尚未分析图片像素。':'尚未关联施工文字；需人工确认归属。',textFacts:image.nearbyText||'',visibleFacts:[],inferences:[],evidenceType:'日报文字',scene:'无法判断',confidence:0,manualReviewed:false,reviewRecommended:true,provider:'text-only',visionEnabled:false};}
 

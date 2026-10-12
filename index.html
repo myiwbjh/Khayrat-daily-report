@@ -17,9 +17,9 @@
       <a href="#entry" data-view="entryView"><span>＋</span>日报录入</a>
       <a href="#compare" data-view="compareView"><span>⇄</span>日报对比</a>
       <a href="#images" data-view="imagesView"><span>▧</span>图片证据</a>
-      <a href="#workshops" data-view="overviewView"><span>▦</span>车间状态与预警</a>
-      <a href="#equipment" data-view="overviewView"><span>◇</span>设备跟踪</a>
-      <a href="#risks" data-view="overviewView"><span>△</span>风险与制约</a>
+      <a href="#workshops" data-view="workshopsView"><span>▦</span>车间状态与预警</a>
+      <a href="#equipment" data-view="equipmentView"><span>◇</span>设备跟踪</a>
+      <a href="#risks" data-view="risksView"><span>△</span>风险与制约</a>
       <p>数据中心</p>
       <a href="#import" data-view="dataView"><span>⇧</span>数据导入与工程量</a>
     </nav>
@@ -90,21 +90,6 @@
             <div class="panel-title"><div><h2>人员投入变化</h2><p>中方 / 伊拉克本地堆叠柱 · 总人数趋势</p></div></div>
             <div id="workforceChart" class="workforce-chart"></div>
           </article>
-          <article class="panel workshop-alerts-panel" id="workshops">
-            <div class="panel-title"><div><h2>主要车间施工状态与停滞预警</h2><p>每个车间仅一行；从最新日报向前核对文字、人员、工程量与照片，重复照片仅作为疑似证据</p></div></div>
-            <div class="workshop-status-table">
-              <div class="workshop-status-head"><span>车间</span><span>最新日期</span><span>施工内容</span><span>工序</span><span>状态</span><span>连续停滞</span><span>预警等级</span><span>关联照片</span></div>
-              <div id="workshopRows" class="workshop-status-list"></div>
-            </div>
-          </article>
-          <article class="panel equipment-panel" id="equipment">
-            <div class="panel-title"><div><h2>主要设备状态</h2><p>发运、到货及安装准备</p></div></div>
-            <div id="equipmentList" class="equipment-list"></div>
-          </article>
-          <article class="panel risks-panel" id="risks">
-            <div class="panel-title"><div><h2>设备安装风险与制约</h2><p>从日报风险字段和滞后节点自动识别</p></div><span id="riskCount" class="count">0</span></div>
-            <div id="riskList" class="risk-list"></div>
-          </article>
           <article class="panel photo-evidence-panel">
             <div class="panel-title"><div><h2>图片识别概览</h2><p>仅汇总照片可见场景与图文核对，不从照片估算人数、工程量或进度百分比</p></div></div>
             <div id="photoEvidenceSummary"></div>
@@ -162,6 +147,26 @@
         <p id="visionStatus"></p><label class="check"><input id="visionConsent" type="checkbox"> <span id="visionConsentText">视觉服务未配置；请先确认接收平台和数据处理规则。</span></label><button id="analyzeImages" class="outline">分析尚未识别图片（每批最多 33 张）</button><button id="stopVision" class="outline" disabled>停止后续分析</button><section class="filters image-filters"><label>日期<input id="imageDate" type="date"></label><label>车间<select id="imageWorkshop"><option value="">全部车间</option></select></label><label>工序<select id="imageProcess"><option value="">全部工序</option></select></label><label>日报名称<input id="imageSource" placeholder="搜索文件名"></label><label class="check"><input id="criticalOnly" type="checkbox"> 仅关键证据</label><button id="imageReset">重置</button></section>
         <button id="cleanLegacyLogos" class="outline">恢复旧版误标图片</button>
         <div id="imageGallery" class="image-gallery"></div>
+      </section>
+
+      <section id="workshopsView" class="page-view" hidden>
+        <div class="section-heading"><h2>车间状态与预警</h2><p>仅显示各车间最新施工状态及连续停滞证据链。</p></div>
+        <article class="panel workshop-alerts-panel" id="workshops">
+          <div class="workshop-status-table">
+            <div class="workshop-status-head"><span>车间</span><span>最新日期</span><span>施工内容</span><span>工序</span><span>状态</span><span>连续停滞</span><span>预警等级</span><span>关联照片</span></div>
+            <div id="workshopRows" class="workshop-status-list"></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="equipmentView" class="page-view" hidden>
+        <div class="section-heading"><h2>设备跟踪</h2><p>独立设备数据源尚未接入。</p></div>
+        <article class="panel placeholder-page"><div class="empty-state compact"><h2>暂无设备跟踪数据</h2><p>页面与侧栏入口已建立，待确认设备台账口径后接入；当前不使用日报文字推测设备状态。</p></div></article>
+      </section>
+
+      <section id="risksView" class="page-view" hidden>
+        <div class="section-heading"><h2>风险与制约</h2><p>独立风险台账尚未接入。</p></div>
+        <article class="panel placeholder-page"><div class="empty-state compact"><h2>暂无风险与制约数据</h2><p>页面与侧栏入口已建立，待确认风险台账口径后接入；当前不从其他模块编造风险记录。</p></div></article>
       </section>
 
       <section id="dataView" class="page-view" hidden>

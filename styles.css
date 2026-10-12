@@ -16,8 +16,8 @@
 /* Foundation workflow: authentication, provenance and report comparison. */
 .cloud-status{border:0;background:transparent;font:inherit;color:var(--muted,#64748b);cursor:pointer;padding:4px 8px}
 .source-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:48vh;overflow:auto;font:inherit;padding:12px;background:#f2f5f8;border-radius:8px}
-.comparison-card{padding:20px;background:white;border:1px solid #dde4eb;border-radius:12px;margin:12px 0}
-.comparison-card p{line-height:1.7;margin:10px 0}.comparison-card blockquote{padding:12px;border-left:3px solid #4c87a1}
+.comparison-card{background:white;border:1px solid #dde4eb;border-radius:10px;margin:8px 0;overflow:hidden}.comparison-card>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;cursor:pointer;list-style:none}.comparison-card>summary::-webkit-details-marker{display:none}.comparison-card>summary span{min-width:0}.comparison-card>summary b,.comparison-card>summary small{display:block}.comparison-card>summary small{margin-top:3px;color:var(--muted);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.comparison-detail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 18px;padding:0 14px 12px;border-top:1px solid #edf1f2}.comparison-card p{line-height:1.45;margin:9px 0 0;font-size:9px}.comparison-card blockquote{padding:8px;border-left:3px solid #4c87a1}.comparison-detail>details{grid-column:1/-1}.comparison-detail>.negative{grid-column:1/-1}.image-card.missing-date{border-color:#d8a24d}.image-card.missing-date .evidence-label{background:#fff0d6;color:#8c5a16}.placeholder-page{max-width:760px;margin-top:14px}
+@media(max-width:700px){.comparison-detail{grid-template-columns:1fr}.comparison-card>summary small{white-space:normal}.comparison-detail>*{grid-column:1!important}}
 #loginDialog,#sourceDialog{border:1px solid #cbd5e1;border-radius:14px;padding:24px;width:min(720px,90vw);max-height:90vh;overflow:auto}
 #loginDialog form input{display:block;padding:12px;width:100%;margin:8px 0;border:1px solid #cbd5e1;border-radius:6px;font:inherit}
 
