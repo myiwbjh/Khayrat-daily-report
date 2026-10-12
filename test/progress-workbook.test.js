@@ -20,7 +20,7 @@ test('real Khayrat workbook identifies sheets, current V1 and historical V0',asy
 
 test('real workbook recomputes WBS quantities and cross-checks cached Excel totals',async()=>{
  const parsed=await parse(),result=analyzeProgress(parsed.records,{asOf:'2026-10-06'});
- close(result.planned,44.538854772678306);close(result.actual,20.749019607843138);close(result.variance,-23.789835164835168);close(result.plannedMonthly,19.865325360913598);close(result.actualMonthly,6.3229999999999995);
+ close(result.planned,29.468854772678302);close(result.actual,13.325019607843135);close(result.variance,-16.143835164835167);close(result.plannedMonthly,13.79865869424693);close(result.actualMonthly,4.069133333333333);assert.ok(Math.max(...result.timeline.map(item=>item.planned||0))<=100.000001);
  assert.equal(parsed.validation.planMatches,true);assert.equal(parsed.validation.sourceActualMatches,true);close(parsed.validation.reportedActualPct,20.7490196078431);close(parsed.validation.computedSourceActualPct,20.749019607843138);close(parsed.validation.computedActualPct,13.325019607843137);close(parsed.validation.computedManagementActualPct,20.749019607843138);
  assert.deepEqual(parsed.quantityMismatches.map(row=>[row.wbs,row.baselineTotal,row.trackingTotal,row.status]),[['1.2',10000,6000,'To Be Verified'],['1.3',1200,800,'To Be Verified']]);
  const concrete=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M6'),rebar=parsed.currentRecords.find(row=>row.wbs==='1.3'&&row.period==='M6');assert.equal(concrete.plannedMonthlyQuantity,2500);assert.equal(concrete.actualMonthlyQuantity,794);assert.equal(concrete.baselineTotal,10000);assert.equal(concrete.managementBaselineTotal,6000);assert.equal(rebar.baselineTotal,1200);assert.equal(rebar.managementBaselineTotal,800);close(concrete.actualCumulativePct,48);close(concrete.excelActualCumulativePct,28.8);
@@ -30,13 +30,13 @@ test('real workbook recomputes WBS quantities and cross-checks cached Excel tota
 
 test('zero-weight leaf is excluded without double counting and disciplines keep both metrics',async()=>{
  const parsed=await parse(),summary=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),civil=summary.disciplines.find(row=>row.name==='土建工程');
- assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,41.498039215686276);close(civil.contributionToProject,20.749019607843138);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
+ assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,26.650039215686274);close(civil.contributionToProject,13.325019607843137);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
  assert.equal(summary.lagging[0].wbs,'1.7');assert.equal(summary.lagging[1].wbs,'1.2');
 });
 
 test('same file hash is stable and a newer batch becomes current while the old snapshot remains',async()=>{
  const first=await parse(),again=await parse();assert.equal(first.batch.id,again.batch.id);assert.equal(first.batch.fileHash,again.batch.fileHash);
- const previous=first.currentRecords.map(row=>({...row,importBatchId:'progress:khayrat:previous',fileHash:'0'.repeat(64),importedAt:'2026-09-30T00:00:00Z',actualCumulativePct:Number.isFinite(row.actualCumulativePct)?Math.max(0,row.actualCumulativePct-2):null}));
+ const previous=first.currentRecords.map(row=>({...row,importBatchId:'progress:khayrat:previous',fileHash:'0'.repeat(64),importedAt:'2026-09-30T00:00:00Z',actualMonthlyQuantity:Number.isFinite(row.actualMonthlyQuantity)?Math.max(0,row.actualMonthlyQuantity-row.baselineTotal*.02):null,actualCumulativePct:Number.isFinite(row.actualCumulativePct)?Math.max(0,row.actualCumulativePct-2):null}));
  assert.equal(new Set([...previous,...first.records].map(row=>row.importBatchId)).size,2);assert.equal(currentProgressRows([...previous,...first.records])[0].importBatchId,first.batch.id);
  const summary=summarizeProgress([...previous,...first.records],{asOf:'2026-10-06'});assert.ok(summary.versionDiff);assert.equal(summary.versionDiff.previous.id,'progress:khayrat:previous');assert.deepEqual(summary.versionDiff.wbsAdded,[]);assert.deepEqual(summary.versionDiff.wbsRemoved,[]);assert.ok(summary.versionDiff.actualChange>0);
 });
