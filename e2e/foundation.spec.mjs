@@ -78,7 +78,7 @@ test('failed PDF batch is visible and cannot be confirmed; cancelling keeps prio
 });
 test('offline PDF mode preserves original and decoded images in IndexedDB through reload',async({page})=>{
   await sandbox(page,{configured:false});await page.goto('/');await upload(page);await page.locator('#confirmImport').click();await expect(page.locator('#importDialog')).not.toBeVisible();await page.reload();await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('#imageGallery img')).toHaveCount(4);await expect.poll(()=>page.locator('#imageGallery img').evaluateAll(imgs=>imgs.every(i=>i.complete&&i.naturalWidth>0))).toBe(true);
-  await page.getByRole('link',{name:'日报录入'}).click();await page.locator('[data-source]').first().click();await expect(page.locator('#sourceDetails')).toContainText('synthetic-reports.pdf');await expect(page.locator('#downloadOriginal')).toBeVisible();
+  await page.getByRole('link',{name:'日报录入'}).click();await page.locator('[data-history-toggle]').first().click();await page.locator('[data-source]').first().click();await expect(page.locator('#sourceDetails')).toContainText('synthetic-reports.pdf');await expect(page.locator('#downloadOriginal')).toBeVisible();
 });
 test('manual report saves to authenticated cloud and retains construction content after reload',async({page})=>{
   const state=await sandbox(page);await login(page);await page.getByRole('link',{name:'日报录入'}).click();
