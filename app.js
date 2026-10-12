@@ -365,9 +365,22 @@ $('#stopVision').onclick=()=>{visionController?.abort();$('#visionStatus').textC
 $('#analyzeImage').onclick=()=>analyzePhotos([evidenceStore.all().find(i=>i.imageId===$('#imageForm').elements.imageId.value)].filter(Boolean));
 refreshVisionStatus();
 $('#closeImageDialog').onclick=()=>$('#imageDialog').close();['imageDate','imageWorkshop','imageProcess','imageSource','criticalOnly'].forEach(id=>$(`#${id}`).oninput=renderImages);$('#imageReset').onclick=()=>{$('#imageDate').value='';$('#imageWorkshop').value='';$('#imageProcess').value='';$('#imageSource').value='';$('#criticalOnly').checked=false;renderImages();};
-$$('[data-view]').forEach(link=>link.onclick=event=>{event.preventDefault();$$('[data-view]').forEach(x=>x.classList.remove('active'));link.classList.add('active');$$('.page-view').forEach(view=>view.hidden=view.id!==link.dataset.view);if(link.dataset.view==='entryView')renderHistory();location.hash=link.getAttribute('href');if($('#sidebar').classList.contains('open'))menu();});
+const pageRoutes={overview:{view:'overviewView'},entry:{view:'entryView'},compare:{view:'compareView'},images:{view:'imagesView'},workshops:{view:'overviewView',target:'workshops'},equipment:{view:'overviewView',target:'equipment'},risks:{view:'overviewView',target:'risks'},import:{view:'dataView',target:'import'},projectData:{view:'dataView',target:'projectData'},evidence:{view:'overviewView',target:'workshops',canonical:'workshops'}};
+function showPage(hash=location.hash,{updateHash=false}={}){
+  const fragment=String(hash||'#overview'),authCallback=new URLSearchParams(fragment.replace(/^#/,'')).has('access_token');
+  const key=authCallback?'overview':fragment.replace(/^#/,'')||'overview',matched=pageRoutes[key],route=matched||pageRoutes.overview,canonical=route.canonical||(matched?key:'overview');
+  $$('.page-view').forEach(view=>view.hidden=view.id!==route.view);
+  $$('[data-view]').forEach(link=>link.classList.toggle('active',link.getAttribute('href')===`#${canonical}`));
+  if(route.view==='entryView')renderHistory();
+  if(!authCallback&&updateHash&&location.hash!==`#${canonical}`)history.pushState(null,'',`#${canonical}`);
+  else if(!authCallback&&(route.canonical||!pageRoutes[key]))history.replaceState(null,'',`#${canonical}`);
+  requestAnimationFrame(()=>{const target=route.target&&document.getElementById(route.target);if(target)target.scrollIntoView({block:'start'});else window.scrollTo({top:0});});
+  if($('#sidebar').classList.contains('open'))menu();
+}
+$$('[data-view]').forEach(link=>link.onclick=event=>{event.preventDefault();showPage(link.getAttribute('href'),{updateHash:true});});
+window.addEventListener('hashchange',()=>showPage(location.hash));
 resetForm(); populateFilters(); render(); renderHistory(); renderImages();
-if(location.hash==='#compare')document.querySelector('[data-view="compareView"]').click();else if (location.hash === '#entry') document.querySelector('[data-view="entryView"]').click(); else if(location.hash==='#images')document.querySelector('[data-view="imagesView"]').click();
+showPage(location.hash);
 
 
 async function initializeCloud(){
