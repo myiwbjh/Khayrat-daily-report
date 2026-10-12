@@ -48,7 +48,7 @@ export function analyzeProgress(rows,{asOf=new Date().toISOString().slice(0,10)}
   const currentEnd=monthEnd(asOf),d=new Date(`${currentEnd}T00:00:00Z`),cutoff=asOf>=currentEnd?currentEnd:new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),0)).toISOString().slice(0,10);
   const latest=latestBy(valid.filter(r=>r.month<=cutoff),key,'month');
   const planned=aggregate(latest,'plannedCumulativePct',cutoff),actual=aggregate(latest,'actualCumulativePct',cutoff),plannedMonthly=aggregate(latest,'plannedMonthlyPct',cutoff),actualMonthly=aggregate(latest,'actualMonthlyPct',cutoff);
-  const timeline=[...new Set(valid.map(r=>r.month))].sort().map(month=>{const items=latestBy(valid.filter(r=>r.month<=month),key,'month');return {month,planned:aggregate(items,'plannedCumulativePct',month).value,actual:month<=cutoff?aggregate(items,'actualCumulativePct',month).value:null};});
+  const timeline=[...new Set(valid.map(r=>r.month))].sort().map(month=>{const items=latestBy(valid.filter(r=>r.month<=month),key,'month');return {month,planned:aggregate(items,'plannedCumulativePct',month).value,actual:month<=cutoff?aggregate(items,'actualCumulativePct',month).value:null,plannedMonthly:aggregate(items,'plannedMonthlyPct',month).value,actualMonthly:month<=cutoff?aggregate(items,'actualMonthlyPct',month).value:null};});
   return {planned:planned.value,actual:actual.value,variance:planned.value!=null&&actual.value!=null?actual.value-planned.value:null,plannedMonthly:plannedMonthly.value,actualMonthly:actualMonthly.value,timeline,latest:latest.map(r=>({...r,stale:r.month!==cutoff})),cutoff,totalWeight,coverage:{planned,actual,plannedMonthly,actualMonthly},issues,selected};
 }
 
