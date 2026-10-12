@@ -37,9 +37,24 @@ test('two latest reports compare crew, quantities and preserve both sources',()=
   const result=compareReports([report('2026-10-01',{status:'停工',dailyConcrete:0}),report('2026-10-03',{dailyConcrete:8,cumulativeConcrete:18,chineseStaff:3})]);
   assert.equal(result.rows[0].classification,'改善');assert.equal(result.rows[0].changes.chineseStaff,1);assert.equal(result.rows[0].changes.dailyQuantity,8);assert.equal(result.rows[0].evidence.length,2);assert.equal(result.rows[0].evidence[0].pageNumber,2);assert.match(result.warnings[0],/不推断/);
 });
-test('missing activities/ambiguous matches are never assumed stopped or complete',()=>{const r=compareReports([report('2026-10-01'),report('2026-10-03',{activityId:'other'})]);assert.ok(r.rows.every(x=>x.classification==='待复核'));const ambiguous=compareReports([report('2026-10-01'),report('2026-10-01',{sourceFile:'other.pdf'}),report('2026-10-03')]);assert.equal(ambiguous.rows[0].classification,'待复核');});
+test('missing activities/ambiguous matches are never assumed stopped or complete',()=>{const r=compareReports([report('2026-10-01'),report('2026-10-03',{activityId:'other'})]);assert.ok(r.rows.every(x=>x.classification==='信息不足'));const ambiguous=compareReports([report('2026-10-01'),report('2026-10-01',{sourceFile:'other.pdf'}),report('2026-10-03')]);assert.equal(ambiguous.rows[0].classification,'信息不足');assert.match(ambiguous.rows[0].notes.join(''),/全部保留/);});
 test('different quantities/crew scopes and absent values do not yield fake deltas',()=>{const r=compareReports([report('2026-10-01'),report('2026-10-03',{workUnit:'t',staffScope:'项目总人数',localStaff:null})]).rows[0];assert.equal(r.changes.dailyQuantity,null);assert.equal(r.changes.localStaff,null);assert.ok(r.notes.length>=2);});
-test('conflicting status/quantity signals and decreasing totals require review',()=>{assert.equal(compareReports([report('2026-10-01',{status:'停工'}),report('2026-10-03',{dailyConcrete:1})]).rows[0].classification,'待复核');assert.equal(compareReports([report('2026-10-01'),report('2026-10-03',{cumulativeConcrete:1})]).rows[0].classification,'待复核');});
+test('conflicting status/quantity signals and decreasing totals preserve values and mark differences',()=>{assert.equal(compareReports([report('2026-10-01',{status:'停工'}),report('2026-10-03',{dailyConcrete:1})]).rows[0].classification,'数据差异');assert.equal(compareReports([report('2026-10-01'),report('2026-10-03',{cumulativeConcrete:1})]).rows[0].classification,'数据差异');});
+test('comparison merges workshop aliases, processes, activities and deduplicated photos into one card',()=>{
+  const records=[
+    report('2026-10-01',{id:'b1',workshop:'粉磨车间',process:'钢筋',activityId:'a1',constructionContent:'绑扎钢筋',dailyConcrete:2,cumulativeConcrete:5}),
+    report('2026-10-01',{id:'b1-copy',workshop:'水泥粉磨车间',process:'钢筋',activityId:'a1',constructionContent:'绑扎钢筋',dailyConcrete:2,cumulativeConcrete:5,sourceFile:'copy.pdf'}),
+    report('2026-10-01',{id:'b2',workshop:'水泥磨车间',process:'模板',activityId:'a2',constructionContent:'安装模板',dailyConcrete:3,cumulativeConcrete:7}),
+    report('2026-10-03',{id:'a1',workshop:'水泥粉磨',process:'钢筋',activityId:'a1',constructionContent:'绑扎钢筋完成',dailyConcrete:4,cumulativeConcrete:9}),
+    report('2026-10-03',{id:'a2',workshop:'水泥粉磨车间',process:'模板',activityId:'a2',constructionContent:'模板加固',dailyConcrete:5,cumulativeConcrete:12})
+  ];
+  const images=[
+    {imageId:'p1',contentSignature:'same',relatedDate:'2026-10-03',relatedWorkshop:'粉磨车间',relatedProcess:'钢筋'},
+    {imageId:'p1-copy',contentSignature:'same',relatedDate:'2026-10-03',relatedWorkshop:'水泥粉磨车间',relatedProcess:'钢筋'},
+    {imageId:'p2',relatedDate:'2026-10-01',relatedWorkshop:'水泥磨车间',relatedProcess:'模板'}
+  ];
+  const result=compareReports(records,{images});assert.equal(result.rows.length,1);const row=result.rows[0];assert.equal(row.workshop,'水泥粉磨车间');assert.deepEqual(row.processes.before,['钢筋','模板']);assert.deepEqual(row.activities.before,['绑扎钢筋','安装模板']);assert.deepEqual(row.activities.after,['绑扎钢筋完成','模板加固']);assert.equal(row.photoCount,2);assert.equal(row.changes.dailyQuantity,4);assert.equal(row.evidence.length,5);
+});
 test('database preserves original file and local images on reload without cloud URLs',async()=>{
   const db=new ProjectDatabase(indexedDB),file=Object.assign(new Blob(['synthetic original']),{name:'test.pdf'});await db.saveOriginals([file],'batch');await db.replace([{id:'record',date:'2026-10-03',provenance:{excerpt:'source text'}}],[{imageId:'local-image',dataUrl:'data:image/png;base64,TEST'},{imageId:'cloud-image',objectPath:'private/path',signedUrl:'temporary-url',dataUrl:'data:image/png;base64,OTHER'}]);
   const snapshot=await db.load();assert.equal(snapshot.records[0].provenance.excerpt,'source text');assert.equal(snapshot.images.find(i=>i.imageId==='local-image').dataUrl,'data:image/png;base64,TEST');assert.equal(snapshot.images.find(i=>i.imageId==='cloud-image').signedUrl,undefined);assert.equal(await (await db.original('batch/test.pdf')).blob.text(),'synthetic original');(await db.open()).close();
