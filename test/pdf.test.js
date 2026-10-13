@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parsePDF, mapPDFText } from '../src/pdf.js';
 import { EvidenceStore } from '../src/storage.js';
-import { analyzeImageMetadata, detectSuspectedStagnation, findEvidenceConflicts, sortImageEvidence, summarizeImageEvidence } from '../src/image-analysis.js';
+import { analyzeImageMetadata, detectSuspectedStagnation, evidenceReviewState, findEvidenceConflicts, sortImageEvidence, summarizeImageEvidence } from '../src/image-analysis.js';
 import { parseWithPDFJS, OCRProvider } from '../src/pdfjs-adapter.js';
 
 class MemoryStorage { constructor(){this.data=new Map()} getItem(k){return this.data.get(k)??null} setItem(k,v){this.data.set(k,v)} }
@@ -14,6 +14,14 @@ test('degrades safely when PDF has no mapped fields or supported images',async()
 test('stores and manually corrects image evidence',()=>{const storage=new MemoryStorage(),store=new EvidenceStore(storage),image={imageId:'i1',sourceFile:'x.pdf',pageNumber:1,imageIndex:1,tags:[]};assert.equal(store.merge([image,image]).added,1);store.update('i1',{relatedWorkshop:'Grinding',critical:true,manualReviewed:true});assert.equal(store.all()[0].critical,true);assert.equal(store.all()[0].relatedWorkshop,'Grinding');});
 test('sorts image evidence by report date then upload time and puts missing dates last',()=>{const rows=sortImageEvidence([{imageId:'missing',uploadedAt:'2026-10-12T09:00:00Z'},{imageId:'old',relatedDate:'2026-10-10',uploadedAt:'2026-10-12T10:00:00Z'},{imageId:'newer-upload',relatedDate:'2026-10-11',uploadedAt:'2026-10-12T11:00:00Z'},{imageId:'older-upload',relatedDate:'2026-10-11',uploadedAt:'2026-10-12T08:00:00Z'}]);assert.deepEqual(rows.map(row=>row.imageId),['newer-upload','older-upload','old','missing']);});
 test('metadata never pretends to see pixels or infers stoppage from text',()=>{const analysis=analyzeImageMetadata({nearbyText:'无人，设备到货'});assert.equal(analysis.scene,'无法判断');assert.equal(analysis.evidenceType,'日报文字');assert.equal(analysis.reviewRecommended,true);assert.deepEqual(analysis.visibleFacts,[]);assert.equal(findEvidenceConflicts({status:'停工'},[{imageId:'i',scene:'施工中',provider:'text-only'}]).length,0);});
+test('manual calibration resolves only approved differences and preserves real or unresolved alerts',()=>{
+ const base={imageId:'i',crossValidation:{status:'potential-conflict',reason:'文字不同'}};
+ assert.equal(evidenceReviewState(base).alert,true);
+ assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'acceptable',note:'语义一致'}}]).length,0);
+ assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'calibrated'}}]).length,0);
+ assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'confirmed-conflict',note:'事实冲突'}}]).length,1);
+ assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'unresolved'}}]).length,1);
+});
 test('dashboard image summary counts evidence without inventing numeric progress',()=>{const summary=summarizeImageEvidence([
   {imageId:'a',relatedDate:'2026-09-30',relatedWorkshop:'磨房',relatedRecordId:'r',visionEnabled:true,scene:'施工中',reviewRecommended:true,crossValidation:{status:'consistent'}},
   {imageId:'b',relatedDate:'2026-09-30',relatedWorkshop:'磨房',visionEnabled:true,scene:'材料堆放',crossValidation:{status:'potential-conflict'}},
@@ -39,3 +47,5 @@ test('PDF.js adapter preserves page location and marks missing fields for review
 test('OCR provider requires consent and backend configuration',async()=>{await assert.rejects(()=>new OCRProvider({endpoint:'/ocr',consent:false}).recognize({},{}),/授权/);await assert.rejects(()=>new OCRProvider({consent:true}).recognize({},{}),/配置/);});
 
 test('OCR-extracted labels retain original values but require review before metrics or layout association',async()=>{const pdfjs={getDocument:()=>({promise:Promise.resolve({numPages:1,getPage:async()=>({getTextContent:async()=>({items:[]})})})})},ocrProvider={recognize:async()=>({text:'Date: 2026-09-30 Workshop: Grinding Process: Foundation Chinese Staff: 67 Local Staff: 30',uncertainSegments:[]})};const result=await parseWithPDFJS(new ArrayBuffer(1),'scan.pdf',{pdfjs,ocrProvider,allowOCR:true});assert.equal(result.records[0].chineseStaff,67);assert.equal(result.records[0].fieldStatus.chineseStaff,'uncertain');assert.equal(result.records[0].fieldStatus.date,'uncertain');assert.equal(result.images.length,0);assert.match(result.diagnostics.warnings.join(' '),/需人工核对/);});
+
+
