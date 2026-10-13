@@ -31,7 +31,7 @@ export function evidenceReviewState(image={}){
   return {code:'unchecked',label:'待核验',tone:'neutral',alert:false};
 }
 export function findEvidenceConflicts(record,images){
-  const conflicts=[];for(const image of images){const review=evidenceReviewState(image);if(review.alert&&['potential-conflict','confirmed-conflict','unresolved'].includes(image.crossValidation?.status||review.code))conflicts.push({imageId:image.imageId,reason:image.calibration?.note||image.crossValidation?.reason||review.label,status:review.code,label:review.label});
+  const conflicts=[];for(const image of images){const review=evidenceReviewState(image),manualConflict=['confirmed-conflict','unresolved'].includes(image.calibration?.decision),automaticConflict=!image.calibration&&image.crossValidation?.status==='potential-conflict';if(review.alert&&(manualConflict||automaticConflict))conflicts.push({imageId:image.imageId,reason:image.calibration?.note||image.crossValidation?.reason||review.label,status:review.code,label:review.label});
     // Legacy results are warnings only; new visual models cannot classify stoppage or delivery.
     if(!image.calibration&&!image.visionEnabled&&image.provider!=='text-only'&&/施工中/.test(record.status||'')&&/停工/.test(image.scene||''))conflicts.push({imageId:image.imageId,reason:'旧规则停工推断未经像素分析，需重新复核',status:'legacy-review',label:'待人工复核'});
   }return conflicts;
