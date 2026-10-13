@@ -161,8 +161,24 @@
       </section>
 
       <section id="equipmentView" class="page-view" hidden>
-        <div class="section-heading"><h2>设备跟踪</h2><p>独立设备数据源尚未接入。</p></div>
-        <article class="panel placeholder-page"><div class="empty-state compact"><h2>暂无设备跟踪数据</h2><p>页面与侧栏入口已建立，待确认设备台账口径后接入；当前不使用日报文字推测设备状态。</p></div></article>
+        <div class="section-heading"><h2>设备跟踪</h2><p>B01 / B02 箱单台账；运输状态仅显示原始可靠字段，空白不推测。</p></div>
+        <section class="shipment-kpis" aria-label="设备物流统计">
+          <article><span>包装记录</span><b id="shipmentPackageKpi">0</b><small>按箱单主表逐件建账</small></article>
+          <article><span>总毛重</span><b id="shipmentWeightKpi">0 t</b><small>仅汇总原箱单毛重</small></article>
+          <article><span>总体积</span><b id="shipmentVolumeKpi">0 m³</b><small>仅汇总原箱单体积</small></article>
+          <article class="alert-kpi"><span>待复核记录</span><b id="shipmentAnomalyKpi">0</b><small>缺件号、数量、重量、体积或重复件号</small></article>
+        </section>
+        <article class="panel shipment-ledger">
+          <div class="shipment-filter-bar">
+            <label>批次<select id="shipmentBatchFilter"><option value="">全部批次</option></select></label>
+            <label>类别<select id="shipmentCategoryFilter"><option value="">全部类别</option></select></label>
+            <label class="shipment-search">搜索<input id="shipmentKeywordFilter" type="search" placeholder="设备、部件、规格、件号、供应商"></label>
+            <label class="shipment-alert-filter"><input id="shipmentAnomalyFilter" type="checkbox"> 仅看待复核</label>
+            <span id="shipmentFilterCount">0 条</span>
+          </div>
+          <div id="shipmentBatchSummary" class="shipment-batch-summary"></div>
+          <div class="table-scroll"><table class="shipment-table"><thead><tr><th>批次 / 件号</th><th>类别 / 设备</th><th>部件 / 规格</th><th>数量</th><th>毛重</th><th>体积</th><th>运输状态</th><th>异常 / 来源</th></tr></thead><tbody id="shipmentRows"></tbody></table></div>
+        </article>
       </section>
 
       <section id="risksView" class="page-view" hidden>
