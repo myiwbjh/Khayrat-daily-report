@@ -21,6 +21,8 @@ test('manual calibration resolves only approved differences and preserves real o
  assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'calibrated'}}]).length,0);
  assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'confirmed-conflict',note:'事实冲突'}}]).length,1);
  assert.equal(findEvidenceConflicts({},[{...base,calibration:{decision:'unresolved'}}]).length,1);
+ assert.equal(findEvidenceConflicts({},[{...base,crossValidation:{status:'consistent'},calibration:{decision:'confirmed-conflict',note:'人工确认冲突'}}]).length,1);
+ assert.equal(findEvidenceConflicts({},[{...base,crossValidation:{status:'insufficient-evidence'},calibration:{decision:'unresolved'}}]).length,1);
 });
 test('dashboard image summary counts evidence without inventing numeric progress',()=>{const summary=summarizeImageEvidence([
   {imageId:'a',relatedDate:'2026-09-30',relatedWorkshop:'磨房',relatedRecordId:'r',visionEnabled:true,scene:'施工中',reviewRecommended:true,crossValidation:{status:'consistent'}},
