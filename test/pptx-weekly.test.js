@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {extractWeeklyFacts} from '../src/pptx.js';
-import {analyzeWeeklyCrossSource} from '../src/project-data.js';
+import {analyzeWeeklyCrossSource,summarizeProgressWithWeekly} from '../src/project-data.js';
 
 const page=(pageNumber,texts,tables=[])=>({pageNumber,texts,tables,notes:[],pictures:[]});
 const pages=[
@@ -31,4 +31,12 @@ test('weekly cross analysis keeps weekly, daily and official Excel values separa
 test('weekly comparison requires the same quantity unit and does not silently replace Excel',()=>{
   const weekly=extractWeeklyFacts(pages,{fileHash:'sample-hash',sourceFile:'第25期.pptx'}).records,progress=[{projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',importBatchId:'excel-1',importedAt:'2026-10-12',wbs:'X',item:'混凝土',unit:'t',month:'2026-09-30',baselineTotal:6000,total:6000,actualCumulativePct:50,sourceFile:'错误单位.xlsx'}],result=analyzeWeeklyCrossSource({reports:weekly,progress,asOf:'2026-10-11'}),concrete=result.rows.find(row=>row.kind==='concrete');
   assert.equal(concrete.excel.cumulative,null);assert.match(concrete.issues.join('；'),/同类别同单位/);assert.equal(concrete.weekly.cumulative,3091);
+});
+
+test('latest weekly quantity becomes actual progress while uncovered WBS keeps its latest sourced value',()=>{
+  const weekly=extractWeeklyFacts(pages,{fileHash:'sample-hash',sourceFile:'第25期.pptx'}).records,progress=[
+    {projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',importBatchId:'excel-1',importedAt:'2026-10-12',wbs:'C-01',item:'混凝土',unit:'m3',weight:60,month:'2026-09-30',baselineTotal:6000,total:6000,plannedCumulativePct:55,actualCumulativePct:50,sourceFile:'工程量.xlsx'},
+    {projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',importBatchId:'excel-1',importedAt:'2026-10-12',wbs:'E-01',item:'电气安装',unit:'项',weight:40,month:'2026-09-30',baselineTotal:10,total:10,plannedCumulativePct:30,actualCumulativePct:20,sourceFile:'工程量.xlsx'}
+  ],result=summarizeProgressWithWeekly({reports:weekly,progress,asOf:'2026-10-11'}),concrete=result.latest.find(row=>row.wbs==='C-01'),electrical=result.latest.find(row=>row.wbs==='E-01');
+  assert.equal(Number(concrete.actualCumulativePct.toFixed(3)),51.517);assert.equal(concrete.actualSourceType,'weekly-report');assert.equal(concrete.actualSourceDate,'2026-10-11');assert.equal(electrical.actualCumulativePct,20);assert.equal(electrical.actualSourceType,'progress-workbook');assert.equal(result.actualAsOf,'2026-10-11');assert.equal(Number(result.actual.toFixed(3)),38.91);assert.equal(result.timeline.some(row=>row.month==='2026-10-11'&&row.actual===result.actual),true);
 });
