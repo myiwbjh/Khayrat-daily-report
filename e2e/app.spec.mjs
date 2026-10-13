@@ -28,7 +28,8 @@ test('navigation keeps every page isolated and resolves dashboard anchors',async
  await expect(page.locator('#shipmentPackageKpi')).toHaveText('0');
  await page.getByRole('link',{name:'风险与制约'}).click();
  await expect(page.locator('#risksView')).toBeVisible();
- await expect(page.locator('#risksView')).toContainText('暂无风险与制约数据');
+ await expect(page.locator('#risksView')).toContainText('暂无匹配风险');
+ await expect(page.locator('#riskActiveKpi')).toHaveText('0');
  await page.goto('/#evidence');
  await expect(page.locator('#workshopsView')).toBeVisible();
  await expect(page).toHaveURL(/#workshops$/);
