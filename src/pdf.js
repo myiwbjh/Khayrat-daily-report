@@ -2,6 +2,8 @@ import { withProvenance } from './report-model.js';
 import { normalizeRows } from './analytics.js';
 import { analyzeImageMetadata,fingerprintImageData } from './image-analysis.js';
 import { businessKey } from './storage.js';
+import {documentDate} from './pdf-layout.js';
+import {associateReportDate} from './date-association.js';
 
 const latin = new TextDecoder('latin1');
 const utf8 = new TextDecoder();
@@ -37,12 +39,13 @@ function dataURL(bytes,mime){let binary='';for(let i=0;i<bytes.length;i+=8192)bi
 
 export async function parsePDF(buffer, sourceFile='report.pdf') {
   const bytes=new Uint8Array(buffer),raw=latin.decode(bytes);if(!raw.startsWith('%PDF-'))throw new Error('不是有效的 PDF 文件');const objects=new Map();for(const m of raw.matchAll(/(\d+)\s+\d+\s+obj\b([\s\S]*?)endobj/g)){const full=m[0],body=m[2],start=m.index+full.indexOf(body);objects.set(Number(m[1]),{id:Number(m[1]),raw:body,dict:body.slice(0,body.indexOf('stream')>=0?body.indexOf('stream'):body.length),bytes:bytes.slice(start,start+body.length)});}
-  const pages=[...objects.values()].filter(o=>/\/Type\s*\/Page\b/.test(o.dict)).sort((a,b)=>a.id-b.id),records=[],images=[];let imageIndex=0;
-  for(let p=0;p<pages.length;p++){const page=pages[p],refs=[...page.dict.matchAll(/\/Contents\s+(\d+)\s+\d+\s+R|\/Contents\s*\[([^\]]+)\]/g)].flatMap(m=>m[1]?[Number(m[1])]:[...(m[2]||'').matchAll(/(\d+)\s+\d+\s+R/g)].map(x=>Number(x[1])));let text='';for(const ref of refs){const obj=objects.get(ref),data=obj&&await streamData(obj);if(data)text+=' '+textOperators(latin.decode(data));}const meta={sourceFile,pageNumber:p+1};let pageRecords=tableRows(text,meta);if(!pageRecords.length)pageRecords=mapPDFText(text,meta);records.push(...pageRecords);
+  const pages=[...objects.values()].filter(o=>/\/Type\s*\/Page\b/.test(o.dict)).sort((a,b)=>a.id-b.id),records=[],images=[],documentPages=[];let imageIndex=0;
+  for(let p=0;p<pages.length;p++){const page=pages[p],refs=[...page.dict.matchAll(/\/Contents\s+(\d+)\s+\d+\s+R|\/Contents\s*\[([^\]]+)\]/g)].flatMap(m=>m[1]?[Number(m[1])]:[...(m[2]||'').matchAll(/(\d+)\s+\d+\s+R/g)].map(x=>Number(x[1])));let text='';for(const ref of refs){const obj=objects.get(ref),data=obj&&await streamData(obj);if(data)text+=' '+textOperators(latin.decode(data));}documentPages.push({pageNumber:p+1,text,layout:{lines:[]}});const meta={sourceFile,pageNumber:p+1};let pageRecords=tableRows(text,meta);if(!pageRecords.length)pageRecords=mapPDFText(text,meta);records.push(...pageRecords);
     const resourceRefs=new Set([...page.raw.matchAll(/\/\w+\s+(\d+)\s+\d+\s+R/g)].map(m=>Number(m[1])));for(const resourceId of [...resourceRefs]){const res=objects.get(resourceId);if(res&&!/\/Subtype\s*\/Image/.test(res.dict))for(const m of res.raw.matchAll(/\/\w+\s+(\d+)\s+\d+\s+R/g))resourceRefs.add(Number(m[1]));}
     for(const ref of resourceRefs){const image=objects.get(ref);if(!image||!/\/Subtype\s*\/Image/.test(image.dict))continue;const data=await streamData(image);if(!data)continue;const mime=/\/DCTDecode/.test(image.dict)?'image/jpeg':/\/JPXDecode/.test(image.dict)?'image/jp2':'';if(!mime)continue;imageIndex++;const related={},encoded=dataURL(data,mime),base={imageId:`pdf-${hash(`${sourceFile}|${p+1}|${imageIndex}|${ref}`)}`,contentSignature:await fingerprintImageData(encoded),sourceFile,pageNumber:p+1,imageIndex,relatedDate:related.date||'',relatedWorkshop:related.workshop||'',relatedProcess:related.process||'',relatedRecordKey:related.date?businessKey(related):'',caption:'',nearbyText:'',association:{status:'unassociated',reason:'基础解析器没有布局坐标，禁止整页文字关联'},tags:[],aiSummary:'',evidenceType:'直接证据',confidence:1,manualReviewed:false,ignored:false,dataUrl:encoded,mimeType:mime};images.push({...base,...analyzeImageMetadata(base),directEvidence:'PDF 嵌入图片'});}
   }
-  return {records,images,diagnostics:{pageCount:pages.length,textPages:records.length,imageCount:images.length,warnings:records.length?[]:['未识别到可映射的日报字段；可在导入后人工录入或修正。']}};
+  const date=documentDate(documentPages,{sourceFile}),dateAssociation=associateReportDate(records,images,date,{sourceFile,method:'built-in-full-text'});
+  return {records,images,diagnostics:{pageCount:pages.length,textPages:records.length,imageCount:images.length,warnings:records.length?[]:['未识别到可映射的日报字段；可在导入后人工录入或修正。'],date:date.date,dateReason:date.reason,dateFilledImages:dateAssociation.filledImages}};
 }
 
 export async function parsePDFDocument(buffer, sourceFile='report.pdf', options={}) {

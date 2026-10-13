@@ -136,32 +136,38 @@ export function textLayout(items, viewport) {
   };
 }
 
-export function documentDate(pages) {
-  const candidates = [];
-  for (const p of pages) {
-    for (const l of p.layout.lines) {
-      if (l.bbox.y > p.height * 0.25) continue;
-      const compact = l.text.replace(/\s/g, "");
-      for (const m of compact.matchAll(
-        /(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?/g,
-      )) {
-        const date = parseReportDate(`${m[1]}-${m[2]}-${m[3]}`);
-        if (date)
-          candidates.push({
-            date,
-            pageNumber: p.pageNumber,
-            bbox: l.bbox,
-            excerpt: l.text,
-          });
+const datePattern = /(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?/g;
+const explicitReportDate = /日报日期|报告日期|填报日期|report\s*date|date\s*of\s*(?:daily\s*)?report/i;
+const genericDateLabel = /(?:^|[\s|])日期\s*[:：]|(?:^|[\s|])date\s*[:：]/i;
+const reportPeriodDate = /报告期|报告期间|reporting\s*(?:date|period)|report\s*period|period\s*ending/i;
+const reportTitle = /施工日报|工程日报|日报|daily\s+(?:construction\s+)?report/i;
+const nonReportDate = /计划|预计|目标|进场|开工|完工|活动日期|施工日期|历史|引用|上期|前期|签发|打印|生成|上传|plan(?:ned)?|forecast|target|schedule|activity\s*date|construction\s*date|histor(?:y|ical)|previous|printed|created|uploaded/i;
+
+// Scan every extracted line in the document. Context ranks an explicit report
+// date above a reporting-period date and excludes activity/plan/history dates.
+export function documentDate(pages,{sourceFile='',verifiedFilename=false}={}) {
+  const candidates=[];
+  for(const p of pages){
+    const lines=p.layout?.lines?.length?p.layout.lines:String(p.text||'').split(/\r?\n/).filter(Boolean).map(text=>({text,bbox:null}));
+    for(let index=0;index<lines.length;index++){
+      const line=lines[index],text=String(line.text||''),compactText=text.replace(/\s/g,''),context=lines.slice(Math.max(0,index-1),index+2).map(item=>item.text).join(' ');
+      for(const match of compactText.matchAll(datePattern)){
+        const date=parseReportDate(`${match[1]}-${match[2]}-${match[3]}`);if(!date)continue;
+        const local=compactText.slice(Math.max(0,match.index-32),match.index+match[0].length),negative=nonReportDate.test(local),explicit=(explicitReportDate.test(local)||genericDateLabel.test(text))&&!negative,period=reportPeriodDate.test(local)&&!negative,title=reportTitle.test(context),excluded=negative&&!explicit&&!period,untrusted=p.extractionMethod==='ocr';
+        const top=Boolean(line.bbox&&p.height&&line.bbox.y<=p.height*.25);
+        const priority=untrusted||excluded?0:explicit?3:period?2:title||top?1:0;
+        const score=untrusted?5:excluded?-100:explicit?300:period?200:title||top?100:5;
+        candidates.push({date,pageNumber:p.pageNumber,bbox:line.bbox||null,excerpt:text,context,priority,score,kind:untrusted?'ocr-unverified':excluded?'excluded':explicit?'report-date':period?'report-period':title?'report-title':'unlabelled'});
       }
     }
   }
-  const dates = [...new Set(candidates.map((c) => c.date))];
-  return {
-    date: dates.length === 1 ? dates[0] : "",
-    candidates,
-    uncertain: dates.length !== 1,
-  };
+  const usable=candidates.filter(candidate=>candidate.score>0),byDate=new Map();
+  for(const candidate of usable){const current=byDate.get(candidate.date)||{date:candidate.date,score:0,priority:0,count:0,candidates:[]};current.score=Math.max(current.score,candidate.score);current.priority=Math.max(current.priority,candidate.priority);current.count++;current.candidates.push(candidate);byDate.set(candidate.date,current);}
+  for(const value of byDate.values())value.score+=Math.min(20,(value.count-1)*5);
+  if(verifiedFilename){const fileMatch=/(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?/.exec(String(sourceFile));if(fileMatch){const filenameDate=parseReportDate(`${fileMatch[1]}-${fileMatch[2]}-${fileMatch[3]}`);if(filenameDate&&!byDate.size)byDate.set(filenameDate,{date:filenameDate,score:100,priority:1,count:1,candidates:[{date:filenameDate,pageNumber:null,bbox:null,excerpt:sourceFile,context:sourceFile,priority:1,score:100,kind:'verified-filename'}]});}}
+  const ranked=[...byDate.values()].sort((a,b)=>b.score-a.score||b.priority-a.priority||b.count-a.count||a.date.localeCompare(b.date)),winner=ranked[0],runnerUp=ranked[1];
+  const confident=Boolean(winner&&(winner.priority>0||winner.score>=100)&&(!runnerUp||winner.priority>runnerUp.priority||winner.score-runnerUp.score>=50));
+  return {date:confident?winner.date:'',candidates,ranked,uncertain:!confident,reason:confident?winner.candidates.find(candidate=>candidate.priority===winner.priority)?.kind||'document-context':ranked.length?'conflicting-or-unlabelled-dates':'date-not-found'};
 }
 
 const integer = (s) => (/^\d+$/.test(String(s).trim()) ? Number(s) : null);

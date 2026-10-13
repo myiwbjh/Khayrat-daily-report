@@ -3,6 +3,7 @@ import { mapPDFText } from "./pdf.js";
 import { withProvenance } from "./report-model.js";
 import { analyzeImageMetadata,fingerprintImageData } from "./image-analysis.js";
 import { businessKey } from "./storage.js";
+import {associateReportDate} from './date-association.js';
 import {
   IDENTITY,
   multiply,
@@ -256,6 +257,7 @@ export async function parseWithPDFJS(
         }
       page.cleanup?.();
     }
+    const dateAssociation=associateReportDate(records,images,date,{sourceFile,method:'pdf-full-text'});
     decorativeImages=markDecorativeImages(pages.map(page=>({...page,imagePlacements:images.filter(image=>image.pageNumber===page.pageNumber)})));
     if(decorativeImages){const retained=images.filter(image=>!image.decorative);images.splice(0,images.length,...retained);}
     const documentLayout = pages.map((p) => ({
@@ -288,11 +290,18 @@ export async function parseWithPDFJS(
         warnings,
         engine: "PDF.js",
         date: date.date,
+        dateReason: date.reason,
+        dateFilledImages: dateAssociation.filledImages,
       },
     };
   } finally {
     await task.destroy?.();
   }
+}
+
+export async function extractReportDateWithPDFJS(buffer,sourceFile,{pdfjs}={}){
+  pdfjs ||= await loadPDFJS();const task=pdfjs.getDocument({data:new Uint8Array(buffer).slice(),useWorkerFetch:false,cMapUrl:'/vendor/cmaps/',cMapPacked:true,standardFontDataUrl:'/vendor/standard_fonts/',wasmUrl:'/vendor/wasm/'}),doc=await task.promise,pages=[];
+  try{for(let n=1;n<=doc.numPages;n++){const page=await doc.getPage(n),viewport=page.getViewport?.({scale:1})||{width:595,height:842,transform:[1,0,0,-1,0,842]},content=await page.getTextContent(),layout=textLayout(content.items||[],viewport);pages.push({pageNumber:n,width:viewport.width,height:viewport.height,text:layout.rows.map(row=>row.text).join('\n'),layout});page.cleanup?.();}return {...documentDate(pages,{sourceFile}),pages};}finally{await task.destroy?.();}
 }
 
 export async function imagePlacements(page, pdfjs, viewport) {
