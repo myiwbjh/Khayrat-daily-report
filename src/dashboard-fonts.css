@@ -1,0 +1,25 @@
+/* Dashboard readability layer: preserve data coordinates. */
+:root { --ui-small: 11px; --ui-medium: 12px; }
+.content .panel-title h2{font-size:17px}
+.content .panel-title p,.content .legend,.content .staff-legend,.content .metric-explainer{font-size:var(--ui-medium);line-height:1.5}
+.content .filters label,.content .kpis span,.content .kpis small,.content .tag{font-size:var(--ui-small)}
+.content table{font-size:var(--ui-medium)}
+.content th,.content td small{font-size:var(--ui-small)}
+.progress-panel .axis-label,.progress-panel .date-label{font-size:11px;fill:#4a5d69;font-weight:600}
+.workforce-combo .grid-lines text,.workforce-combo .date-label{font-size:11px;fill:#4a5d69;font-weight:600}
+.workforce-combo .total-label{font-size:12px;font-weight:700;fill:#263b46}
+.workforce-panel .staff-legend{font-size:12px}
+.progress-panel .legend{max-width:320px}
+.latest-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(142px,1fr));gap:12px;margin-top:14px}
+.latest-photo-tile{display:block;min-width:0;padding:0;background:white;border:1px solid var(--line);border-radius:9px;overflow:hidden;text-align:left;cursor:pointer}
+.latest-photo-tile:hover{border-color:var(--teal)}
+.latest-photo-tile .thumb{position:relative;display:block;height:118px;background:#e4eaeb}
+.latest-photo-tile img{display:block;width:100%;height:100%;object-fit:cover}
+.latest-photo-tile small{display:block;padding:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:12px}
+@media(max-width:600px){
+ .content .panel-title h2{font-size:16px}
+ .progress-panel .chart,.workforce-chart{overflow-x:auto;overflow-y:hidden}
+ .progress-panel .chart svg,.workforce-combo{min-width:580px}
+ .progress-panel .legend{font-size:11px}
+ .latest-photo-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

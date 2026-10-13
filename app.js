@@ -16,6 +16,7 @@ import { OCRProvider } from './src/pdfjs-adapter.js';
 import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analyzeProgress,summarizeProgress,currentProgressRows,crossAnalyze,PROGRESS_HEADERS,SHIPMENT_HEADERS,CROSSWALK_HEADERS} from './src/project-data.js';
 import {renderWorkforceChart} from './src/workforce-chart.js';
 import {renderProgressChart} from './src/progress-chart.js';
+import {renderLatestPhotoGallery} from './src/latest-gallery.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -195,6 +196,7 @@ function render() {
   $('#stoppageKpi').textContent = stoppageEvidence.filter(item=>/疑似停滞|高度疑似停工|确认停工/.test(item.current.status)).length;
   $('#photoKpi').textContent = `${photo.analyzed}/${photo.total}`;$('#photoNote').textContent=`${latestReportDate||'暂无日报'} · 已识别 / 当日有效照片 · 历史照片在图片证据查询`;
   $('#photoEvidenceSummary').innerHTML=latestReportDate?`<div class="photo-summary"><b>${escapeHTML(latestReportDate)}</b><span>总数 ${photo.total}</span><span>已识别 ${photo.analyzed}</span><span>失败 ${photoFailures}</span></div><div class="scene-summary">${photoWorkshops.map(([workshop,count])=>`<span class="tag">${escapeHTML(workshop)} ${count}</span>`).join('')||'<span>最新日报暂无关联照片</span>'}</div>`:'<div class="mini-empty">尚无日报日期</div>';
+  renderLatestPhotoGallery($('#photoEvidenceSummary'),latestPhotos,{token:cloud?.token||'',openImage});
   const curve=hasProjectProgress?projectProgress.timeline.map(p=>({date:p.month,planned:p.planned,actual:p.actual,plannedMonthly:p.plannedMonthly,actualMonthly:p.actualMonthly})):a.timeline;$('#trendChart').innerHTML = renderProgressChart(curve); $('#chartCaption').textContent = hasProjectProgress?`累计 S Curve（折线）· 月度增量（柱）· ${curve.length} 个月`:`${period === 'day' ? '每日' : period === 'week' ? '每周' : '每月'}聚合 · 日报临时数据`;
   $('#workforceChart').innerHTML = renderWorkforceChart(a.workforce);
   const selectedDate=$('#dateFilter').value,selectedWorkshop=$('#workshopFilter').value,selectedProcess=$('#processFilter').value;
