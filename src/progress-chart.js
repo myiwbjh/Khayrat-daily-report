@@ -16,6 +16,6 @@ export function renderProgressChart(points){
     return [['plannedMonthly','monthly-plan',-barWidth],['actualMonthly','monthly-actual',0]].map(([key,cls,offset])=>finite(point[key])?`<rect class="${cls}" x="${x(index)+offset}" y="${yMonthly(point[key])}" width="${barWidth}" height="${Math.max(0,bottom-yMonthly(point[key]))}"><title>${date} · ${key==='plannedMonthly'?'月度计划增量':'月度实际增量'} ${valueLabel(point[key])}</title></rect>`:'').join('');
   }).join('');
   const dots=points.map((point,index)=>['planned','actual'].map(key=>finite(point[key])?`<circle class="${key}-dot" cx="${x(index)}" cy="${y(point[key])}" r="3"><title>${html(point.date)} · ${key==='planned'?'计划累计':'实际累计'} ${valueLabel(point[key])}</title></circle>`:'').join('')).join('');
-  const labels=points.map((point,index)=>`<text class="date-label" x="${x(index)}" y="${height-12}" text-anchor="middle">${html(point.date.slice(5,7)+'月')}</text>`).join('');
+  const labels=points.map((point,index)=>`<text class="date-label" x="${x(index)}" y="${height-12}" text-anchor="middle">${html(point.date.slice(2,4)+'/'+point.date.slice(5,7))}</text>`).join('');
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="累计进度左轴0至100%，月度增量右轴按最大月度值自动定标；柱高与月度百分比线性成比例"><g class="grid-lines">${horizontal}${vertical}</g>${rightTicks}${bars}<path class="plan-line" d="${path('planned')}"/><path class="actual-line" d="${path('actual')}"/>${dots}${labels}</svg>`;
 }
