@@ -24,7 +24,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
     if(url.pathname==='/auth/v1/user')return route.fulfill({json:user});
     if(url.pathname==='/auth/v1/logout')return route.fulfill({json:{}});
     if(url.pathname==='/auth/v1/token'){if(url.searchParams.get('grant_type')==='password'){state.passwordLogins=(state.passwordLogins||0)+1;if(holdPassword)await new Promise(resolve=>{state.releaseLogin=resolve;});if(failVerify)return route.fulfill({status:400,json:{error:'invalid_grant',error_description:'SYNTHETIC private password'}});return route.fulfill({json:session()});}state.refreshes++;return route.fulfill({json:session()});}
-    if(url.pathname.startsWith('/storage/v1/object/sign/')){state.signedRequests.push(url.pathname);state.signedRequestBodies.push(req.postDataJSON());return route.fulfill({json:{signedURL:'/object/signed-test/'+encodeURIComponent(url.pathname.replace('/storage/v1/object/sign/','/storage/v1/object/'))}});}
+    if(url.pathname.startsWith('/storage/v1/object/sign/')){state.signedRequests.push(url.pathname);state.signedRequestBodies.push(request.postDataJSON());return route.fulfill({json:{signedURL:'/object/signed-test/'+encodeURIComponent(url.pathname.replace('/storage/v1/object/sign/','/storage/v1/object/'))}});}
     if(url.pathname.startsWith('/storage/v1/object/signed-test/')){
       const key=decodeURIComponent(url.pathname.slice('/storage/v1/object/signed-test/'.length)),object=state.objects.get(key);return route.fulfill({contentType:'image/png',body:object||Buffer.from('')});
     }
