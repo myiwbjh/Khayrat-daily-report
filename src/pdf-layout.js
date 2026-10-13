@@ -138,7 +138,7 @@ export function textLayout(items, viewport) {
 
 const datePattern = /(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?/g;
 const explicitReportDate = /日报日期|报告日期|填报日期|report\s*date|date\s*of\s*(?:daily\s*)?report/i;
-const genericDateLabel = /(?:^|[\s|])日期\s*[:：]|(?:^|[\s|])date\s*[:：]/i;
+const genericDateLabel = /(?:^|[^a-z])date[:：]?$|日期[:：]?$/i;
 const reportPeriodDate = /报告期|报告期间|reporting\s*(?:date|period)|report\s*period|period\s*ending/i;
 const reportTitle = /施工日报|工程日报|日报|daily\s+(?:construction\s+)?report/i;
 const nonReportDate = /计划|预计|目标|进场|开工|完工|活动日期|施工日期|历史|引用|上期|前期|签发|打印|生成|上传|plan(?:ned)?|forecast|target|schedule|activity\s*date|construction\s*date|histor(?:y|ical)|previous|printed|created|uploaded/i;
@@ -153,7 +153,7 @@ export function documentDate(pages,{sourceFile='',verifiedFilename=false}={}) {
       const line=lines[index],text=String(line.text||''),compactText=text.replace(/\s/g,''),context=lines.slice(Math.max(0,index-1),index+2).map(item=>item.text).join(' ');
       for(const match of compactText.matchAll(datePattern)){
         const date=parseReportDate(`${match[1]}-${match[2]}-${match[3]}`);if(!date)continue;
-        const local=compactText.slice(Math.max(0,match.index-32),match.index+match[0].length),negative=nonReportDate.test(local),explicit=(explicitReportDate.test(local)||genericDateLabel.test(text))&&!negative,period=reportPeriodDate.test(local)&&!negative,title=reportTitle.test(context),excluded=negative&&!explicit&&!period,untrusted=p.extractionMethod==='ocr';
+        const prefix=compactText.slice(Math.max(0,match.index-32),match.index),local=compactText.slice(Math.max(0,match.index-32),match.index+match[0].length),negative=nonReportDate.test(local),explicit=(explicitReportDate.test(local)||genericDateLabel.test(prefix))&&!negative,period=reportPeriodDate.test(local)&&!negative,title=reportTitle.test(context),excluded=negative&&!explicit&&!period,untrusted=p.extractionMethod==='ocr';
         const top=Boolean(line.bbox&&p.height&&line.bbox.y<=p.height*.25);
         const priority=untrusted||excluded?0:explicit?3:period?2:title||top?1:0;
         const score=untrusted?5:excluded?-100:explicit?300:period?200:title||top?100:5;

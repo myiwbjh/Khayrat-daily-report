@@ -203,6 +203,9 @@ test('date scans the full PDF and report context outranks plan, activity and his
 test('conflicting explicit report dates stay unresolved instead of guessing',()=>{
   const first=page([[300,[[10,'报告日期：2026-10-12']]]]),second=page([[300,[[10,'Report Date: 2026-10-13']]]]);second.pageNumber=2;assert.equal(documentDate([first,second]).date,'');
 });
+test('generic date label applies only to its adjacent date candidate',()=>{
+  const p=page([[300,[[10,'Date: 2026-10-12 Delivery: 2026-10-14']]]]),result=documentDate([p]);assert.equal(result.date,'2026-10-12');assert.equal(result.candidates.find(candidate=>candidate.date==='2026-10-14').kind,'unlabelled');
+});
 test("distant same-baseline columns retain separate text blocks and coordinates", () => {
   const l = textLayout(
     [
