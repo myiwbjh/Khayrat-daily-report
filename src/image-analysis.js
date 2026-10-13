@@ -17,16 +17,29 @@ export class ImageAnalysisProvider{
     return {scene:r.scene,tags:[...(r.equipment||[]),...(r.materials||[])],visibleFacts:r.visibleFacts,textFacts:r.textFacts||'',inferences:r.inferences,limitations:r.limitations||[],activities:r.activities||[],structures:r.structures||[],stage:r.stage,crossValidation:r.crossValidation,aiSummary:r.summary,confidence:r.confidence,evidenceType:'AI推断',manualReviewed:false,reviewRecommended:true,provider:r.provider,model:r.model,usage:r.usage,fallback:r.fallback||false,attempts:r.attempts||[],cached:r.cached||false,analyzedAt:r.analyzedAt,visionEnabled:true};
   }
 }
+export const CALIBRATION_DECISIONS=['calibrated','acceptable','confirmed-conflict','unresolved'];
+export function evidenceReviewState(image={}){
+  const decision=image.calibration?.decision;
+  if(decision==='calibrated')return {code:decision,label:'已校准',tone:'good',alert:false};
+  if(decision==='acceptable')return {code:decision,label:'差异可接受',tone:'good',alert:false};
+  if(decision==='confirmed-conflict')return {code:decision,label:'真实冲突',tone:'danger',alert:true};
+  if(decision==='unresolved')return {code:decision,label:'无法确认',tone:'warning',alert:true};
+  const status=image.crossValidation?.status;
+  if(status==='potential-conflict')return {code:'pending',label:'待人工校准',tone:'danger',alert:true};
+  if(status==='consistent')return {code:'consistent',label:'图文一致',tone:'good',alert:false};
+  if(status==='insufficient-evidence')return {code:'insufficient',label:'证据不足',tone:'neutral',alert:false};
+  return {code:'unchecked',label:'待核验',tone:'neutral',alert:false};
+}
 export function findEvidenceConflicts(record,images){
-  const conflicts=[];for(const image of images){if(image.crossValidation?.status==='potential-conflict')conflicts.push({imageId:image.imageId,reason:image.crossValidation.reason});
+  const conflicts=[];for(const image of images){const review=evidenceReviewState(image),manualConflict=['confirmed-conflict','unresolved'].includes(image.calibration?.decision),automaticConflict=!image.calibration&&image.crossValidation?.status==='potential-conflict';if(review.alert&&(manualConflict||automaticConflict))conflicts.push({imageId:image.imageId,reason:image.calibration?.note||image.crossValidation?.reason||review.label,status:review.code,label:review.label});
     // Legacy results are warnings only; new visual models cannot classify stoppage or delivery.
-    if(!image.visionEnabled&&image.provider!=='text-only'&&/施工中/.test(record.status||'')&&/停工/.test(image.scene||''))conflicts.push({imageId:image.imageId,reason:'旧规则停工推断未经像素分析，需重新复核'});
+    if(!image.calibration&&!image.visionEnabled&&image.provider!=='text-only'&&/施工中/.test(record.status||'')&&/停工/.test(image.scene||''))conflicts.push({imageId:image.imageId,reason:'旧规则停工推断未经像素分析，需重新复核',status:'legacy-review',label:'待人工复核'});
   }return conflicts;
 }
 export function summarizeImageEvidence(images,{date='',workshop='',process=''}={}){
   const relevant=images.filter(i=>!i.ignored&&(!date||!i.relatedDate||i.relatedDate<=date)&&(!workshop||i.relatedWorkshop===workshop)&&(!process||i.relatedProcess===process));
   const analyzed=relevant.filter(i=>i.visionEnabled||i.manualReviewed),linked=relevant.filter(i=>i.relatedRecordId||i.relatedRecordKey||i.association?.status?.startsWith('linked'));
-  const conflicts=relevant.filter(i=>i.crossValidation?.status==='potential-conflict');
+  const conflicts=relevant.filter(i=>evidenceReviewState(i).alert);
   const scenes=new Map();for(const image of analyzed){const scene=image.scene||'无法判断';scenes.set(scene,(scenes.get(scene)||0)+1);}
   return {total:relevant.length,analyzed:analyzed.length,linked:linked.length,pending:relevant.length-analyzed.length,review:relevant.filter(i=>i.reviewRecommended&&!i.manualReviewed).length,conflicts:conflicts.length,sceneCounts:[...scenes].sort((a,b)=>b[1]-a[1]||SCENES.indexOf(a[0])-SCENES.indexOf(b[0])),conflictItems:conflicts};
 }
@@ -74,4 +87,6 @@ export function detectSuspectedStagnation(images,records=[],{date='',workshop=''
   }
   return {items:items.sort((a,b)=>b.similarity-a.similarity||b.days-a.days),duplicatesExcluded,compared:candidates.length,skippedUnfingerprinted:eligible.length-candidates.length};
 }
+
+
 

@@ -16,7 +16,8 @@ test('monthly columns use a shared right-axis linear scale without changing real
   assert.ok(Math.abs(plan[1]/plan[0]-2)<1e-7);
   assert.ok(Math.abs(plan[2]/plan[0]-3)<1e-7);
   assert.ok(Math.abs(actual[0]/plan[0]-.5)<1e-7);
-  assert.match(chart,/class="axis-label right-axis"[^>]*>15%<\/text>/);
+  assert.match(chart,/class="axis-label right-axis"[^>]*>40%<\/text>/);
+  assert.match(chart,/右轴（0–40%）/);
   assert.match(chart,/月度计划增量 12\.0%/);
   assert.doesNotMatch(chart,/月度实际增量 0\.0%/);
 });
@@ -27,3 +28,5 @@ test('workforce labels have layout clearance and do not synthesize missing total
   assert.match(svg,/>112<\/text>/);
   assert.equal((svg.match(/class="total-label"/g)||[]).length,1);
 });
+
+
