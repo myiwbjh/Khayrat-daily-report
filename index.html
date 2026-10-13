@@ -177,13 +177,15 @@
             <span id="shipmentFilterCount">0 条</span>
           </div>
           <div id="shipmentBatchSummary" class="shipment-batch-summary"></div>
-          <div class="table-scroll"><table class="shipment-table"><thead><tr><th>批次 / 件号</th><th>类别 / 设备</th><th>部件 / 规格</th><th>数量</th><th>毛重</th><th>体积</th><th>运输状态</th><th>异常 / 来源</th></tr></thead><tbody id="shipmentRows"></tbody></table></div>
+          <div id="shipmentHierarchy" class="shipment-hierarchy"></div>
+          <nav id="shipmentPagination" class="image-pagination" aria-label="设备记录分页" hidden><button id="shipmentPrev" class="outline" type="button">上一页</button><span id="shipmentPageStatus"></span><button id="shipmentNext" class="outline" type="button">下一页</button></nav>
         </article>
       </section>
 
       <section id="risksView" class="page-view" hidden>
-        <div class="section-heading"><h2>风险与制约</h2><p>独立风险台账尚未接入。</p></div>
-        <article class="panel placeholder-page"><div class="empty-state compact"><h2>暂无风险与制约数据</h2><p>页面与侧栏入口已建立，待确认风险台账口径后接入；当前不从其他模块编造风险记录。</p></div></article>
+        <div class="section-heading"><h2>风险与制约</h2><p>综合日报、周报、WBS、设备物流、人员和照片证据；事实与系统推断分开显示。</p></div>
+        <section class="risk-kpis" aria-label="风险统计"><article><span>活动风险</span><b id="riskActiveKpi">0</b></article><article class="alert-kpi"><span>高风险</span><b id="riskHighKpi">0</b></article><article><span>中风险</span><b id="riskMediumKpi">0</b></article><article><span>已解决历史</span><b id="riskResolvedKpi">0</b></article></section>
+        <article class="panel"><div class="risk-filter-bar"><label>等级<select id="riskSeverityFilter"><option value="">全部等级</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label>状态<select id="riskStatusFilter"><option value="">全部状态</option><option value="active">处理中</option><option value="resolved">已解决</option></select></label><label class="shipment-search">搜索<input id="riskKeywordFilter" type="search" placeholder="风险、WBS、车间、设备或依据"></label><span id="riskFilterCount">0 项</span></div><div id="riskRows" class="risk-register"></div></article>
       </section>
 
       <section id="dataView" class="page-view" hidden>
