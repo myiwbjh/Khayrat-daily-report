@@ -4,7 +4,7 @@ test('overview gallery builds only selected newest-date photos and opens origina
   await page.goto('/');
   await page.evaluate(async()=>{
     const {renderLatestPhotoGallery}=await import('/src/latest-gallery.js');
-    const target=document.createElement('div');target.id='test-latest-photos';document.body.append(target);
+    const target=document.createElement('div');target.id='test-latest-photos';target.style.cssText='position:fixed;left:28%;top:20%;z-index:9999;background:white;padding:20px;width:430px';document.body.append(target);
     const onePixel='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y8vR2IAAAAASUVORK5CYII=';
     window.testOpened='';
     renderLatestPhotoGallery(target,[
