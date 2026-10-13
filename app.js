@@ -14,7 +14,7 @@ import { ProjectDatabase } from './src/database.js';
 import { loadCloudConfig, SupabaseCloudRepository } from './src/cloud.js';
 import { OCRProvider,extractReportDateWithPDFJS } from './src/pdfjs-adapter.js';
 import {associateReportDate,backfillStoredReportDates,reportDocumentIdentity} from './src/date-association.js';
-import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analyzeProgress,summarizeProgress,currentProgressRows,crossAnalyze,PROGRESS_HEADERS,SHIPMENT_HEADERS,CROSSWALK_HEADERS} from './src/project-data.js';
+import {normalizeProgressRows,normalizeShipmentRows,normalizeCrosswalkRows,analyzeProgress,summarizeProgress,summarizeShipments,currentProgressRows,crossAnalyze,PROGRESS_HEADERS,SHIPMENT_HEADERS,CROSSWALK_HEADERS} from './src/project-data.js';
 import {renderWorkforceChart} from './src/workforce-chart.js';
 import {renderProgressChart} from './src/progress-chart.js';
 import {renderLatestPhotoGallery} from './src/latest-gallery.js';
@@ -185,8 +185,8 @@ function render() {
   renderProjectData();
   const filtered = filterRecords(records, { date: $('#dateFilter').value, workshop: $('#workshopFilter').value, process: $('#processFilter').value });
   $('#recordCount').textContent = `${filtered.length} 条原始记录`;
-  $('#emptyState').hidden = records.length > 0 || progressRecords.length > 0; $('#dashboard').hidden = records.length === 0 && progressRecords.length === 0; $('#demoBanner').hidden = !demoMode;
-  $('#dataStatus').textContent = demoMode ? '示例数据 · 非项目实绩' : records.length ? `${records.length} 条记录已载入` : '尚未导入数据';
+  $('#emptyState').hidden = records.length > 0 || progressRecords.length > 0 || shipmentRecords.length > 0; $('#dashboard').hidden = records.length === 0 && progressRecords.length === 0; $('#demoBanner').hidden = !demoMode;
+  $('#dataStatus').textContent = demoMode ? '示例数据 · 非项目实绩' : records.length ? `${records.length} 条日报已载入` : shipmentRecords.length?`${shipmentRecords.length} 条设备物流已载入`:'尚未导入数据';
   renderComparison();
   if (!records.length && !progressRecords.length) return;
   const a = analyzeRecords(filtered, period),allImages=evidenceStore.all(),activeImages=allImages.filter(image=>!image.ignored);
@@ -195,7 +195,7 @@ function render() {
   const projectProgress=summarizeProgress(progressRecords,{asOf:progressCutoff()}),hasProjectProgress=projectProgress.selected.length>0;
   $('#plannedKpi').textContent = pct(hasProjectProgress?projectProgress.planned:null); $('#actualKpi').textContent = pct(hasProjectProgress?projectProgress.actual:null);
   $('#plannedNote').textContent = hasProjectProgress?`${projectProgress.selected[0]?.planVersion||'WBS'} · 月末口径 · 截至 ${projectProgress.cutoff}${projectProgress.actual==null?' · 数据缺失/过期待复核':''}`:a.latestDate?`截至 ${a.latestDate}`:'等待数据';
-  const projectVariance=hasProjectProgress?projectProgress.variance:null;$('#varianceNote').textContent = projectVariance == null ? '缺少计划或实际值' : `计划偏差 ${delta(projectVariance)}${hasProjectProgress?' · 来源：进度/WBS':''}`;
+  const projectVariance=hasProjectProgress?projectProgress.variance:null;$('#varianceNote').innerHTML = projectVariance == null ? '<span>缺少计划或实际值</span>' : `<span>计划偏差 ${delta(projectVariance)}</span>${hasProjectProgress?'<span>来源：进度/WBS</span>':''}`;
   $('#concreteKpi').textContent = hasProjectProgress?`${pct(projectProgress.plannedMonthly)} / ${pct(projectProgress.actualMonthly)}`:a.quantityGroups.length === 0 ? '—' : a.quantityGroups.length === 1 ? `${a.quantityGroups[0].daily?.toFixed(2) ?? '—'} / ${Number.isFinite(a.quantityGroups[0].cumulative)?a.quantityGroups[0].cumulative.toFixed(2):'—'}` : `${a.quantityGroups.length} 组`;
   $('#concreteNote').textContent = hasProjectProgress?'本期计划 / 实际完成率 · WBS 基准口径':a.quantityGroups.length === 1 ? `${a.quantityGroups[0].workshop} · ${a.quantityGroups[0].unit}` : a.quantityGroups.length > 1 ? '按车间、工序和单位分别统计' : '暂无工程量数据';
   $('#peopleKpi').textContent = a.kpis.totalStaff ?? '—'; $('#peopleNote').textContent = `中方 ${a.kpis.chineseStaff ?? '—'} · 属地 ${a.kpis.localStaff ?? '—'} · 较上期 ${a.kpis.staffDelta == null ? '—' : (a.kpis.staffDelta >= 0 ? '+' : '') + a.kpis.staffDelta}${a.kpis.staffNeedsReview?' · ⚠ PDF 原文合计不一致':''}`;
@@ -229,6 +229,18 @@ function renderProjectData(){
   $('#progressQuality').innerHTML=summary.qualityIssues.length?`<details open><summary><b>待复核差异 ${summary.qualityIssues.length} 项</b></summary><ul>${summary.qualityIssues.map(item=>`<li>${issueLine(item)}</li>`).join('')}</ul></details>`:current.length?'Excel 计划、实际跟踪、WBS 汇总及管理基准未发现差异。':'';
   const findings=crossAnalyze({reports:records,progress:progressRecords,shipments:shipmentRecords,mappings:crosswalkMappings,projectId,asOf:progressCutoff()});
   $('#crossAnalysis').innerHTML=findings.length?`<h3>交叉判断</h3>${findings.map(f=>`<article class="cross-finding"><span class="evidence-label">AI 推断 · ${escapeHTML(f.severity)}</span><h3>${escapeHTML(f.title)}</h3><p><b>原始事实：</b>${f.facts.map(escapeHTML).join('；')}</p><p><b>系统计算：</b>${escapeHTML(f.basis)}</p><p><b>待人工确认：</b>${escapeHTML(f.confirmation)}</p></article>`).join('')}`:'<p class="mini-empty">当前没有满足交叉预警规则的组合；原始事实、系统计算、AI 推断与待确认项会分开展示。</p>';
+  renderShipments();
+}
+
+function renderShipments(){
+  const summary=summarizeShipments(shipmentRecords),batchFilter=$('#shipmentBatchFilter'),categoryFilter=$('#shipmentCategoryFilter'),keywordFilter=$('#shipmentKeywordFilter');
+  const syncOptions=(select,values,label)=>{const selected=select.value;select.innerHTML=`<option value="">${label}</option>${values.map(value=>`<option value="${escapeHTML(value)}">${escapeHTML(value)}</option>`).join('')}`;select.value=values.includes(selected)?selected:'';};
+  syncOptions(batchFilter,summary.batches.map(item=>item.batch),'全部批次');syncOptions(categoryFilter,summary.categories.map(([name])=>name),'全部类别');
+  const keyword=keywordFilter.value.trim().toLowerCase(),filtered=shipmentRecords.filter(row=>(!batchFilter.value||(row.shipmentBatch||'未标批次')===batchFilter.value)&&(!categoryFilter.value||(row.category||'未分类')===categoryFilter.value)&&(!$('#shipmentAnomalyFilter').checked||row._computedAnomalies.length)&&(!keyword||[row.equipmentName,row.componentName,row.packedItem,row.specification,row.packageLot,row.supplier,...(row.itemDetails||[]).flatMap(item=>[item.itemName,item.specification])].some(value=>String(value||'').toLowerCase().includes(keyword))));
+  $('#shipmentPackageKpi').textContent=summary.packages;$('#shipmentWeightKpi').textContent=`${(summary.grossWeightKg/1000).toLocaleString('zh-CN',{maximumFractionDigits:1})} t`;$('#shipmentVolumeKpi').textContent=`${summary.volumeM3.toLocaleString('zh-CN',{maximumFractionDigits:1})} m³`;$('#shipmentAnomalyKpi').textContent=summary.anomalies.length;$('#shipmentFilterCount').textContent=`${filtered.length} / ${summary.packages} 条`;
+  $('#shipmentBatchSummary').innerHTML=summary.batches.map(item=>`<article><b>${escapeHTML(item.batch)}</b><span>${item.packages} 件</span><span>${(item.grossWeightKg/1000).toLocaleString('zh-CN',{maximumFractionDigits:1})} t</span><span>${item.volumeM3.toLocaleString('zh-CN',{maximumFractionDigits:1})} m³</span><small>${item.anomalies?`${item.anomalies} 条待复核`:'数据字段完整'}</small></article>`).join('')||'<div class="mini-empty">尚未导入设备箱单</div>';
+  const value=(number,unit,digits=1)=>Number.isFinite(number)?`${number.toLocaleString('zh-CN',{maximumFractionDigits:digits})} ${unit}`:'—',status=row=>[row.status,row.customsStatus,row.siteArrivalDate].filter(Boolean).join(' · ');
+  $('#shipmentRows').innerHTML=filtered.map(row=>`<tr class="${row._computedAnomalies.length?'shipment-review':''}"><td><b>${escapeHTML(row.shipmentBatch||'未标批次')} · ${escapeHTML(row.packageLot||'件号缺失')}</b><small>序号 ${escapeHTML(row.packageSequence||row.sourceRow||'—')} · ${escapeHTML(row.supplier||'供应商未填')}</small></td><td><span class="tag">${escapeHTML(row.category||'未分类')}</span><b>${escapeHTML(row.equipmentName||'设备名称缺失')}</b></td><td><b>${escapeHTML(row.componentName||row.packedItem||row.itemDetails?.[0]?.itemName||'—')}</b><small title="${escapeHTML(row.specification||'')}">${escapeHTML(row.specification||'规格未提供')}</small></td><td>${value(row.quantity,row.unit||'')}</td><td>${value(row.grossWeightKg??row.weight,'kg')}</td><td>${value(row.volumeM3,'m³',3)}</td><td>${status(row)?escapeHTML(status(row)):'<span class="not-reported">—（原箱单未提供）</span>'}</td><td>${row._computedAnomalies.length?`<span class="tag danger">${escapeHTML(row._computedAnomalies.join('、'))}</span>`:'<span class="tag good">字段完整</span>'}<small>${escapeHTML(row.sourceFile||'未知来源')} · ${escapeHTML(row.sourceSheet||'')} 第 ${escapeHTML(row.sourceRow||'—')} 行</small></td></tr>`).join('')||'<tr><td colspan="8" class="mini-empty">筛选范围内无设备记录</td></tr>';
 }
 
 async function rowsFromFile(file){const ext=file.name.split('.').pop().toLowerCase();if(ext==='csv')return parseCSV(await file.text());if(ext==='xlsx')return parseXLSX(await file.arrayBuffer());throw new Error('仅支持 CSV / XLSX');}
@@ -245,6 +257,7 @@ async function importProjectData(type,file){
 $('#progressImportButton').onclick=()=>$('#progressInput').click();$('#shipmentImportButton').onclick=()=>$('#shipmentInput').click();$('#mappingImportButton').onclick=()=>$('#mappingInput').click();
 function handleProjectFile(type,event){const file=event.target.files[0];event.target.value='';return importProjectData(type,file);}
 $('#progressInput').onchange=e=>handleProjectFile('progress',e);$('#shipmentInput').onchange=e=>handleProjectFile('shipments',e);$('#mappingInput').onchange=e=>handleProjectFile('mappings',e);
+for(const id of ['shipmentBatchFilter','shipmentCategoryFilter','shipmentKeywordFilter','shipmentAnomalyFilter'])$(`#${id}`).addEventListener(id==='shipmentKeywordFilter'?'input':'change',renderShipments);
 $$('[data-template]').forEach(button=>button.onclick=()=>{const headers={progress:PROGRESS_HEADERS,shipments:SHIPMENT_HEADERS,mappings:CROSSWALK_HEADERS}[button.dataset.template],a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+headers.join(',')+'\n'],{type:'text/csv;charset=utf-8'}));a.download=`khayrat-${button.dataset.template}-template.csv`;a.click();URL.revokeObjectURL(a.href);});
 
 async function importFiles(files) {
