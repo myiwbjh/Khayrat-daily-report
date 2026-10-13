@@ -24,7 +24,8 @@ test('navigation keeps every page isolated and resolves dashboard anchors',async
  await expect(page).toHaveURL(/#workshops$/);
  await page.getByRole('link',{name:'设备跟踪'}).click();
  await expect(page.locator('#equipmentView')).toBeVisible();
- await expect(page.locator('#equipmentView')).toContainText('暂无设备跟踪数据');
+ await expect(page.locator('#equipmentView')).toContainText('尚未导入设备箱单');
+ await expect(page.locator('#shipmentPackageKpi')).toHaveText('0');
  await page.getByRole('link',{name:'风险与制约'}).click();
  await expect(page.locator('#risksView')).toBeVisible();
  await expect(page.locator('#risksView')).toContainText('暂无风险与制约数据');
