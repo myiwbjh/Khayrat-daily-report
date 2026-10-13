@@ -195,6 +195,17 @@ test("date comes from header text rather than file name; conflicting dates are u
   const p2 = page([[40, [[10, "2026-09-29"]]]]);
   assert.equal(documentDate([p, p2]).date, "");
 });
+test('date scans the full PDF and report context outranks plan, activity and historical dates',()=>{
+  const first=page([[40,[[10,'计划完工日期：2026-12-31']]],[320,[[10,'历史引用：2025-09-01']]]]);
+  const second=page([[500,[[10,'施工活动日期：2026-10-11']]],[790,[[10,'报告日期：2026-10-12']]]]);second.pageNumber=2;
+  const result=documentDate([first,second]);assert.equal(result.date,'2026-10-12');assert.equal(result.reason,'report-date');assert.equal(result.candidates.some(candidate=>candidate.kind==='excluded'),true);
+});
+test('conflicting explicit report dates stay unresolved instead of guessing',()=>{
+  const first=page([[300,[[10,'报告日期：2026-10-12']]]]),second=page([[300,[[10,'Report Date: 2026-10-13']]]]);second.pageNumber=2;assert.equal(documentDate([first,second]).date,'');
+});
+test('generic date label applies only to its adjacent date candidate',()=>{
+  const p=page([[300,[[10,'Date: 2026-10-12 Delivery: 2026-10-14']]]]),result=documentDate([p]);assert.equal(result.date,'2026-10-12');assert.equal(result.candidates.find(candidate=>candidate.date==='2026-10-14').kind,'unlabelled');
+});
 test("distant same-baseline columns retain separate text blocks and coordinates", () => {
   const l = textLayout(
     [
