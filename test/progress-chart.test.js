@@ -12,4 +12,7 @@ test('renders cumulative curves and monthly increment bars without filling missi
  assert.equal((html.match(/class="monthly-actual"/g)||[]).length,1);
  assert.match(html,/月度实际增量 15\.0%/);assert.match(html,/class="date-grid"/);
  assert.match(html,/right-axis/);assert.match(html,/>100%<\/text>/);
+ assert.match(html,/右轴（0–40%）/);assert.match(html,/cumulative-data/);assert.match(html,/monthly-data/);
 });
+
+
