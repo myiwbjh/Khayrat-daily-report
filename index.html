@@ -47,12 +47,9 @@
         </div>
       </section>
 
-      <section class="timeline" aria-label="项目时间基准">
-        <div class="time-item done"><i></i><span>实际现场施工起点<small>2026 年 3 月</small></span></div>
-        <div class="time-line"><span></span></div>
-        <div class="time-item contract"><i></i><span>合同工期起算<small>2026 年 9 月 7 日</small></span></div>
-        <div class="time-line muted"><span></span></div>
-        <div class="time-item target"><i></i><span>主要设备安装目标<small>2026 年 12 月</small></span></div>
+      <section class="milestone-card" aria-label="项目里程碑时间轴">
+        <div class="milestone-heading"><div><b>项目里程碑</b><small>独立展示，不参与正式工期、WBS 或进度计算</small></div><button id="editMilestones" class="outline" type="button" hidden>编辑里程碑</button></div>
+        <div id="milestoneTimeline" class="timeline"></div>
       </section>
 
       <section class="filters">
@@ -220,6 +217,7 @@
   <dialog id="loginDialog"><h2>登录日报系统</h2><p>使用已有获准邮箱和密码。登录后，此浏览器会自动恢复会话。</p><form id="passwordLoginForm"><label for="passwordEmail">邮箱</label><input id="passwordEmail" type="email" autocomplete="username" required><label for="loginPassword">密码</label><input id="loginPassword" type="password" autocomplete="current-password" required><p id="passwordLoginError" role="status"></p><button id="passwordLogin" class="primary">登录</button></form><p>还没有密码？在已经登录的浏览器点击“设置登录密码”，只需设置一次。</p><details id="emailLoginFallback"><summary>首次设置密码：备用邮箱验证</summary><form id="loginForm"><label for="loginEmail">获准邮箱</label><input id="loginEmail" type="email" autocomplete="email" required><p id="loginError" role="status"></p><button id="sendLogin" class="primary">发送登录链接</button></form><hr><form id="verifyLoginForm" autocomplete="off"><h3>在此浏览器验证登录链接</h3><p>若邮件在另一个浏览器中打开，请复制邮件里尚未打开的链接并在这里验证。已点击的链接不能重复使用。请勿把链接发到聊天中。</p><label for="verifyLoginEmail">接收登录邮件的邮箱</label><input id="verifyLoginEmail" type="email" autocomplete="email" required><label for="loginLink">邮箱登录链接</label><input id="loginLink" name="verificationLink" type="password" autocomplete="off" maxlength="4096" required><p>链接仅用于本项目的一次验证，不保存在日报、日志或浏览器地址中。</p><p id="verifyLoginError" role="status"></p><button id="verifyLogin" class="primary">验证并登录</button></form></details><button id="cancelLogin" type="button" class="outline">取消</button></dialog>
   <dialog id="passwordSetupDialog"><h2>设置登录密码</h2><p>为当前已验证的邮箱设置密码，以后无需邮件链接即可登录。请勿在聊天中提供密码。</p><form id="passwordSetupForm"><label for="newLoginPassword">新密码（至少 12 位）</label><input id="newLoginPassword" type="password" autocomplete="new-password" minlength="12" required><label for="confirmLoginPassword">确认新密码</label><input id="confirmLoginPassword" type="password" autocomplete="new-password" minlength="12" required><p id="passwordSetupError" role="status"></p><button id="saveLoginPassword" class="primary">设置密码</button><button id="cancelPasswordSetup" type="button" class="outline">取消</button></form></dialog>
   <dialog id="sourceDialog"><h2>来源与原文</h2><pre id="sourceDetails" class="source-text"></pre><button id="downloadOriginal" class="primary">下载原始文件</button><button id="closeSource" class="outline">关闭</button></dialog>
+  <dialog id="milestoneDialog" class="milestone-dialog"><form id="milestoneForm"><div class="milestone-dialog-heading"><div><h2>编辑项目里程碑</h2><p>按日期自动排列；同日节点使用排序值。样式预览会即时更新。</p></div><button id="addMilestone" class="outline" type="button">＋ 新增节点</button></div><div id="milestoneEditorList"></div><div class="milestone-editor-preview"><b>预览</b><div id="milestonePreview" class="timeline"></div></div><p id="milestoneError" role="status"></p><div class="form-actions"><button id="cancelMilestones" class="outline" type="button">取消</button><button id="saveMilestones" class="primary" type="submit">保存修改</button></div></form></dialog>
   <script type="module" src="app.js"></script>
 <dialog id="membersDialog"><h2>管理员批准账号</h2><pre id="memberList"></pre><form id="memberForm"><label>新账号邮箱<input name="email" type="email"></label><label>或现有用户 UUID（修改角色）<input name="userId"></label><label>角色<select name="role"><option value="reader">Reader</option><option value="editor">Editor</option></select></label><label><input name="approved" type="checkbox" required>管理员批准该账号和角色</label><button type="submit">保存权限</button></form><p id="memberStatus"></p><button id="closeMembers">关闭</button></dialog></body>
 </html>

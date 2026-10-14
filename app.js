@@ -20,6 +20,7 @@ import {renderWorkforceChart} from './src/workforce-chart.js';
 import {renderProgressChart} from './src/progress-chart.js';
 import {renderLatestPhotoGallery} from './src/latest-gallery.js';
 import {analyzeProjectRisks} from './src/risk-analysis.js';
+import {DEFAULT_MILESTONES,normalizeMilestone,sortMilestones,milestoneDateLabel} from './src/milestones.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -38,9 +39,10 @@ let pendingImport = null;
 let cloud = null;
 let auth=null;
 let memberRole="",isAdmin=false;
+let milestones=DEFAULT_MILESTONES.map(item=>({...item})),milestoneOriginalIds=new Set();
 function canEdit(){return !cloud?.configured||memberRole==="editor"||isAdmin;}
 function assertEditor(){if(!canEdit())throw new Error("当前账号仅允许查看，需 Editor 权限");}
-function refreshPermissions(){document.documentElement.dataset.projectRole=canEdit()?"editor":"reader";$("#publishPublic").hidden=!canEdit();$("#manageMembers").hidden=!isAdmin;}
+function refreshPermissions(){document.documentElement.dataset.projectRole=canEdit()?"editor":"reader";$("#publishPublic").hidden=!canEdit();$("#manageMembers").hidden=!isAdmin;$("#editMilestones").hidden=!(cloud?.configured&&cloud?.token&&canEdit());}
 
 let loginController=null;
 let visionBusy=false;
@@ -70,10 +72,10 @@ async function selectCacheScope(userId){
   if(cacheUser===userId)return scopeReady;
   cacheUser=userId;const version=++scopeVersion;$('#dateFilter').value='';
   store.setScope(projectId,userId);evidenceStore.setScope(projectId,userId);database=new ProjectDatabase();database.setScope(projectId,userId);
-  records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];pendingImport=null;
+  records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];milestones=DEFAULT_MILESTONES.map(item=>({...item}));pendingImport=null;
   demoMode=false;visionController?.abort();$('#visionConsent').checked=false;
   for(const dialog of ['#imageDialog','#sourceDialog','#importDialog'])if($(dialog).open)$(dialog).close();
-  $('#reportForm').reset();populateFilters();render();renderHistory();renderImages();
+  $('#reportForm').reset();populateFilters();render();renderHistory();renderImages();renderMilestones();
   scopeReady=(async()=>{const snapshot=await database.load();if(version!==scopeVersion)return;
     store.mergeRemote(snapshot.records);const ids=new Set(snapshot.images.map(i=>i.imageId));evidenceStore.setCache([...snapshot.images,...evidenceStore.all().filter(i=>!ids.has(i.imageId))]);records=store.all();
     progressRecords=snapshot.progress||[];shipmentRecords=snapshot.shipments||[];crosswalkMappings=snapshot.mappings||[];
@@ -94,7 +96,7 @@ async function backfillMissingReportDates(snapshot,repo){
 }
 async function hydrateCloud(){
   if(!cloud?.token)return;
-  const version=scopeVersion,repo=cloud;await scopeReady;const membership=await repo.request(`/rest/v1/project_members?project_id=eq.${encodeURIComponent(projectId)}&select=role,is_admin`);const members=await membership.json();if(version!==scopeVersion)return;memberRole=members[0]?.role||"";isAdmin=members[0]?.is_admin===true;refreshPermissions();if(!memberRole){records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];evidenceStore.setCache([]);store.cache=[];populateFilters();render();renderHistory();renderImages();throw new Error("邮箱尚未获得项目授权");}const snapshot=await repo.loadProject();if(version!==scopeVersion)return;await backfillMissingReportDates(snapshot,repo);if(snapshot.dateBackfill?.recordIds?.length){const changed=new Map(snapshot.records.filter(record=>snapshot.dateBackfill.recordIds.includes(record.id)).map(record=>[record.id,record]));store.write(store.all().map(record=>changed.has(record.id)?{...record,...changed.get(record.id)}:record));}store.mergeRemote(snapshot.records);evidenceStore.mergeRemote(snapshot.images);records=store.all();const missing=new Set(snapshot.unavailableTables||[]);if(!missing.has('progress_measurements'))progressRecords=snapshot.progress||[];if(!missing.has('equipment_shipments'))shipmentRecords=snapshot.shipments||[];if(!missing.has('crosswalk_mappings'))crosswalkMappings=snapshot.mappings||[];await Promise.all([database.replaceProjectData('progress',progressRecords),database.replaceProjectData('shipments',shipmentRecords),database.replaceProjectData('mappings',crosswalkMappings)]);
+  const version=scopeVersion,repo=cloud;await scopeReady;const membership=await repo.request(`/rest/v1/project_members?project_id=eq.${encodeURIComponent(projectId)}&select=role,is_admin`);const members=await membership.json();if(version!==scopeVersion)return;memberRole=members[0]?.role||"";isAdmin=members[0]?.is_admin===true;refreshPermissions();if(!memberRole){records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];evidenceStore.setCache([]);store.cache=[];populateFilters();render();renderHistory();renderImages();throw new Error("邮箱尚未获得项目授权");}const [snapshot,remoteMilestones]=await Promise.all([repo.loadProject(),repo.loadMilestones()]);if(version!==scopeVersion)return;milestones=remoteMilestones===null?DEFAULT_MILESTONES.map(item=>({...item})):sortMilestones(remoteMilestones);renderMilestones();await backfillMissingReportDates(snapshot,repo);if(snapshot.dateBackfill?.recordIds?.length){const changed=new Map(snapshot.records.filter(record=>snapshot.dateBackfill.recordIds.includes(record.id)).map(record=>[record.id,record]));store.write(store.all().map(record=>changed.has(record.id)?{...record,...changed.get(record.id)}:record));}store.mergeRemote(snapshot.records);evidenceStore.mergeRemote(snapshot.images);records=store.all();const missing=new Set(snapshot.unavailableTables||[]);if(!missing.has('progress_measurements'))progressRecords=snapshot.progress||[];if(!missing.has('equipment_shipments'))shipmentRecords=snapshot.shipments||[];if(!missing.has('crosswalk_mappings'))crosswalkMappings=snapshot.mappings||[];await Promise.all([database.replaceProjectData('progress',progressRecords),database.replaceProjectData('shipments',shipmentRecords),database.replaceProjectData('mappings',crosswalkMappings)]);
   await hydrateImages();await syncDatabase();populateFilters();render();renderHistory();renderImages();
 }
 async function hydrateImages(){for(const image of evidenceStore.all()){image.signedUrl='';image.loadError='';}imagePage=1;imagePreviewGeneration++;}
@@ -160,6 +162,19 @@ function populateFilters() {
 }
 
 function escapeHTML(value = '') { const div = document.createElement('div'); div.textContent = String(value); return div.innerHTML; }
+function renderMilestoneTimeline(target,items){
+  const sorted=sortMilestones(items);target.innerHTML=sorted.length?sorted.map((item,index)=>`<div class="milestone-entry"><i class="milestone-line ${item.beforeLineStyle}${index?'':' edge'}" style="--line-color:${item.beforeLineColor}"></i><div class="milestone-node" title="${escapeHTML(item.description)}"><i class="milestone-dot" style="--milestone-color:${item.circleColor}"></i><span>${escapeHTML(item.name)}<small>${escapeHTML(milestoneDateLabel(item))}</small>${item.description?`<em>${escapeHTML(item.description)}</em>`:''}</span></div><i class="milestone-line ${item.afterLineStyle}${index===sorted.length-1?' edge':''}" style="--line-color:${item.afterLineColor}"></i></div>`).join(''):'<p class="milestone-empty">尚未设置项目里程碑</p>';
+}
+function renderMilestones(){renderMilestoneTimeline($('#milestoneTimeline'),milestones);}
+function milestoneEditorRow(item){return `<article class="milestone-edit-row" data-milestone-id="${escapeHTML(item.id)}"><div class="milestone-edit-grid"><label class="wide">名称<input name="name" maxlength="120" required value="${escapeHTML(item.name)}"></label><label>日期<input name="date" type="date" required value="${escapeHTML(item.date)}"></label><label>精度<select name="datePrecision"><option value="day"${item.datePrecision==='day'?' selected':''}>精确到天</option><option value="month"${item.datePrecision==='month'?' selected':''}>精确到月</option></select></label><label class="wide">说明<textarea name="description" maxlength="500" rows="2">${escapeHTML(item.description)}</textarea></label><label>同日排序<input name="sortOrder" type="number" min="0" max="100000" step="1" value="${item.sortOrder}"></label></div><div class="milestone-style-grid"><label>圆圈颜色<input name="circleColor" type="color" value="${item.circleColor}"></label><label>前线型<select name="beforeLineStyle"><option value="solid"${item.beforeLineStyle==='solid'?' selected':''}>实线</option><option value="dashed"${item.beforeLineStyle==='dashed'?' selected':''}>虚线</option></select></label><label>前线颜色<input name="beforeLineColor" type="color" value="${item.beforeLineColor}"></label><label>后线型<select name="afterLineStyle"><option value="solid"${item.afterLineStyle==='solid'?' selected':''}>实线</option><option value="dashed"${item.afterLineStyle==='dashed'?' selected':''}>虚线</option></select></label><label>后线颜色<input name="afterLineColor" type="color" value="${item.afterLineColor}"></label></div><button class="milestone-remove" type="button">删除节点</button></article>`;}
+function readMilestoneEditor(){return [...$('#milestoneEditorList').querySelectorAll('[data-milestone-id]')].map(row=>{const field=name=>row.querySelector(`[name="${name}"]`).value,item=normalizeMilestone({id:row.dataset.milestoneId,name:field('name'),date:field('date'),datePrecision:field('datePrecision'),description:field('description'),sortOrder:field('sortOrder'),circleColor:field('circleColor'),beforeLineStyle:field('beforeLineStyle'),beforeLineColor:field('beforeLineColor'),afterLineStyle:field('afterLineStyle'),afterLineColor:field('afterLineColor')});if(item.datePrecision==='month')item.date=item.date.slice(0,7)+'-01';return item;});}
+function refreshMilestonePreview(){renderMilestoneTimeline($('#milestonePreview'),readMilestoneEditor().filter(item=>item.name&&item.date));}
+function bindMilestoneRows(){$('#milestoneEditorList').querySelectorAll('.milestone-remove').forEach(button=>button.onclick=()=>{if(confirm('删除此里程碑？保存后可从数据库修改记录追溯。')){button.closest('.milestone-edit-row').remove();refreshMilestonePreview();}});}
+$('#editMilestones').onclick=()=>{if(!canEdit()||!cloud?.token)return;milestoneOriginalIds=new Set(milestones.map(item=>item.id));$('#milestoneEditorList').innerHTML=sortMilestones(milestones).map(milestoneEditorRow).join('');$('#milestoneError').textContent='';bindMilestoneRows();refreshMilestonePreview();$('#milestoneDialog').showModal();};
+$('#addMilestone').onclick=()=>{const item=normalizeMilestone({date:today,sortOrder:(readMilestoneEditor().at(-1)?.sortOrder||0)+10});$('#milestoneEditorList').insertAdjacentHTML('beforeend',milestoneEditorRow(item));bindMilestoneRows();refreshMilestonePreview();};
+$('#milestoneEditorList').addEventListener('input',refreshMilestonePreview);$('#milestoneEditorList').addEventListener('change',refreshMilestonePreview);
+$('#cancelMilestones').onclick=()=>$('#milestoneDialog').close();
+$('#milestoneForm').onsubmit=async event=>{event.preventDefault();if(!canEdit()||!cloud?.token)return;const rows=readMilestoneEditor();if(rows.some(item=>!item.name||!item.date)){$('#milestoneError').textContent='请填写每个节点的名称和日期。';return;}const ids=new Set(rows.map(item=>item.id)),deleted=[...milestoneOriginalIds].filter(id=>!ids.has(id)),button=$('#saveMilestones');button.disabled=true;try{await cloud.saveMilestones(rows,deleted);milestones=sortMilestones(await cloud.loadMilestones());renderMilestones();$('#milestoneDialog').close();toast('里程碑已保存到云端');}catch(error){$('#milestoneError').textContent=error.status===403||error.code==='42501'?'当前账号无权修改里程碑。':error.message;}finally{button.disabled=false;}};
 function signedNumber(value){return value==null?'未报告':`${value>=0?'+':''}${Number(value.toFixed(3))}`;}
 function renderComparison(){
   const dates=[...new Set(records.map(r=>r.date).filter(Boolean))].sort(),before=$('#compareBefore'),after=$('#compareAfter');
@@ -431,7 +446,7 @@ function showPage(hash=location.hash,{updateHash=false}={}){
 }
 $$('[data-view]').forEach(link=>link.onclick=event=>{event.preventDefault();showPage(link.getAttribute('href'),{updateHash:true});});
 window.addEventListener('hashchange',()=>showPage(location.hash));
-resetForm(); populateFilters(); render(); renderHistory(); renderImages();
+resetForm(); populateFilters(); render(); renderHistory(); renderImages(); renderMilestones();
 showPage(location.hash);
 
 
