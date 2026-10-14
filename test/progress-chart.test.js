@@ -16,4 +16,11 @@ test('renders cumulative curves and monthly increment bars without filling missi
  assert.match(html,/viewBox="0 0 800 390"/);assert.match(html,/悬停读取真实数据/);
 });
 
+test('staggers colliding latest cumulative labels and keeps weekly as-of detail in tooltip only',()=>{
+ const html=renderProgressChart([{date:'2026-10-31',planned:20,actual:20,plannedMonthly:8,actualMonthly:null,actualAsOf:'2026-10-11'}]);
+ assert.match(html,/class="data-label cumulative-data planned-data"[^>]*text-anchor="end"/);
+ assert.match(html,/class="data-label cumulative-data actual-data"[^>]*text-anchor="start"/);
+ assert.match(html,/数据截至 2026-10-11/);assert.equal((html.match(/cumulative-data/g)||[]).length,2);
+});
+
 
