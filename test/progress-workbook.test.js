@@ -38,6 +38,11 @@ test('confirmed basis differences stop alarming while raw issues and correction 
  assert.equal(summary.rawQualityIssues.length,5);assert.equal(summary.resolvedQualityIssues.length,1);assert.equal(summary.qualityIssues.length,4);assert.equal(summary.qualityIssues.find(issue=>issue.issueId==='plan-tracking-quantity:1.2').reviewDecision.action,'correct-data');
 });
 
+test('review correction recalculates weighted KPIs through an overlay and preserves source values',async()=>{
+ const parsed=await parse(),source=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M6'),before=summarizeProgress(parsed.records,{asOf:'2026-10-06'});parsed.records[0].workbookMeta.reviewDecisions=[{issueId:'plan-tracking-quantity:1.2',action:'adopt-correction',correctedValue:6000,note:'采用审核值',reviewedAt:'2026-10-15T00:00:00Z'}];const after=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),adjusted=after.selected.find(row=>row.wbs==='1.2');
+ assert.equal(source.baselineTotal,10000);assert.equal(source.trackingTotal,6000);assert.equal(adjusted.reviewAdjustedBaselineTotal,6000);assert.ok(after.planned>before.planned);assert.ok(after.actual>before.actual);assert.equal(after.resolvedQualityIssues.length,1);assert.equal(after.qualityIssues.length,4);
+});
+
 test('zero-weight leaf is excluded without double counting and disciplines keep both metrics',async()=>{
  const parsed=await parse(),summary=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),civil=summary.disciplines.find(row=>row.name==='土建工程');
  assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,26.650039215686274);close(civil.contributionToProject,13.325019607843137);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
@@ -95,4 +100,9 @@ test('progress review writes append-only audit before batch metadata without cha
  const parsed=await parse(),calls=[],response=(json={})=>({ok:true,json:async()=>json}),fetchImpl=async(url,options={})=>{calls.push({url,method:options.method,body:options.body?JSON.parse(options.body):null});return response();},repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public'},{accessToken:'jwt',userId:'editor-1',fetchImpl}),issue=parsed.qualityIssues[0];
  const saved=await repo.saveProgressReviewDecision(parsed.batch.id,{issue,action:'confirm-basis',note:'桩基总量为完成标志，分期量不适用',reviewDecisions:[],batchMetadata:{...parsed.batch,qualityIssues:parsed.qualityIssues}});
  assert.equal(calls.length,2);assert.match(calls[0].url,/import_audits$/);assert.match(calls[1].url,/progress_import_batches/);assert.equal(calls[0].body.result.originalRecordsModified,0);assert.equal(calls[1].body.metadata.reviewDecisions[0].action,'confirm-basis');assert.equal(calls[1].body.quality_status,'To Be Verified');assert.equal(saved.reviewDecisions.length,1);
+});
+
+test('progress review validates corrected values before any backend write',async()=>{
+ const parsed=await parse(),calls=[],repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public'},{accessToken:'jwt',userId:'editor-1',fetchImpl:async(...args)=>{calls.push(args);return {ok:true,json:async()=>({})};}}),issue=parsed.qualityIssues[1];
+ await assert.rejects(repo.saveProgressReviewDecision(parsed.batch.id,{issue,action:'adopt-correction',correctedValue:0,note:'无效',batchMetadata:{qualityIssues:parsed.qualityIssues}}),/大于 0/);assert.equal(calls.length,0);
 });

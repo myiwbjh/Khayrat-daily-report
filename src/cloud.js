@@ -69,12 +69,13 @@ export class SupabaseCloudRepository{
     }
     return {duplicate:false,auditId,resumed:Boolean(existing),batch:{...body,current_version:true,import_status:'complete'}};
   }
-  async saveProgressReviewDecision(batchId,{issue,action,note,reviewDecisions=[],batchMetadata={}}={}){
+  async saveProgressReviewDecision(batchId,{issue,action,note,correctedValue=null,reviewDecisions=[],batchMetadata={}}={}){
     if(!batchId||!issue?.issueId)throw new Error('待复核项缺少批次或差异标识');
-    if(!['correct-data','confirm-basis','keep-pending'].includes(action))throw new Error('未知复核处理');
+    if(!['confirm-original','adopt-correction','confirm-basis','defer','correct-data','keep-pending'].includes(action))throw new Error('未知复核处理');
     note=String(note||'').trim();if(!note)throw new Error('请填写复核依据或待修正说明');
-    const auditId=crypto.randomUUID(),reviewedAt=new Date().toISOString(),decision={issueId:issue.issueId,action,note,reviewedAt,reviewedBy:this.userId||null},next=[...reviewDecisions.filter(item=>item.issueId!==issue.issueId),decision],rawIssues=batchMetadata.qualityIssues||[],unresolved=rawIssues.filter(item=>!next.some(entry=>entry.issueId===(item.issueId||`${item.type}:${item.wbs||'all'}`)&&entry.action==='confirm-basis'));
-    await this.request('/rest/v1/import_audits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({import_id:auditId,project_id:this.projectId,files:[batchMetadata.sourceFile||issue.sourceFile||''],result:{type:'progress-review',progressBatchId:batchId,issueId:issue.issueId,action,note,reviewedAt,originalRecordsModified:0,rawIssue:issue}})});
+    correctedValue=correctedValue===''||correctedValue==null?null:Number(correctedValue);if(action==='adopt-correction'&&(!Number.isFinite(correctedValue)||correctedValue<=0))throw new Error('修正值必须大于 0');
+    const resolves=entry=>['confirm-original','confirm-basis'].includes(entry?.action)||entry?.action==='adopt-correction'&&Number.isFinite(Number(entry.correctedValue))&&Number(entry.correctedValue)>0,auditId=crypto.randomUUID(),reviewedAt=new Date().toISOString(),decision={issueId:issue.issueId,action,note,...(correctedValue==null?{}:{correctedValue}),reviewedAt,reviewedBy:this.userId||null},next=[...reviewDecisions.filter(item=>item.issueId!==issue.issueId),decision],rawIssues=batchMetadata.qualityIssues||[],unresolved=rawIssues.filter(item=>!next.some(entry=>entry.issueId===(item.issueId||`${item.type}:${item.wbs||'all'}`)&&resolves(entry)));
+    await this.request('/rest/v1/import_audits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({import_id:auditId,project_id:this.projectId,files:[batchMetadata.sourceFile||issue.sourceFile||''],result:{type:'progress-review',progressBatchId:batchId,issueId:issue.issueId,action,note,correctedValue,reviewedAt,reviewedBy:this.userId||null,originalRecordsModified:0,rawIssue:issue}})});
     const metadata={...batchMetadata,reviewDecisions:next};
     await this.request(`/rest/v1/progress_import_batches?project_id=eq.${encodeURIComponent(this.projectId)}&id=eq.${encodeURIComponent(batchId)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata,quality_status:unresolved.length?'To Be Verified':'Verified',updated_at:reviewedAt})});
     return {auditId,decision,reviewDecisions:next,qualityStatus:unresolved.length?'To Be Verified':'Verified'};
