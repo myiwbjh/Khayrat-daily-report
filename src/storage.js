@@ -62,5 +62,6 @@ export class EvidenceStore {
   }
   update(imageId, changes) { const items = this.all(), index = items.findIndex(x => x.imageId === imageId); if (index < 0) return null; items[index] = { ...items[index], ...changes, updatedAt: new Date().toISOString() }; this.write(items); return items[index]; }
   removeBySource(sourceFile) { this.write(this.all().filter(x => x.sourceFile !== sourceFile)); }
+  clear() { this.cache=[];this.storage.removeItem(this.key); }
 }
 

@@ -33,7 +33,7 @@
   <main>
     <header>
       <button id="menuButton" class="menu" aria-label="打开菜单">☰</button>
-      <div><span class="live-dot"></span><b>Khayrat 日报分析系统</b><small id="dataStatus">尚未导入数据</small><button id="cloudStatus" class="cloud-status">正在检查云端配置</button><button id="setPasswordButton" hidden>设置登录密码</button><button id="publishPublic" data-write hidden>发布公开看板</button><button id="manageMembers" hidden>用户权限管理</button><button id="signOutButton" class="outline" hidden>退出登录</button></div>
+      <div><span class="live-dot"></span><b>Khayrat 日报分析系统</b><small id="dataStatus">尚未导入数据</small><button id="cloudStatus" class="cloud-status">正在检查云端配置</button><button id="setPasswordButton" hidden>设置登录密码</button><button id="publishPublic" data-write hidden>发布公开看板</button><button id="manageMembers" hidden>用户权限管理</button><button id="signOutButton" class="outline" hidden>退出登录</button><button id="signOutClearButton" class="outline" hidden>退出并清缓存</button></div>
       <button id="importTop" class="primary">＋ 导入日报</button>
     </header>
 
@@ -71,6 +71,7 @@
       <div id="dashboard" hidden>
         <div id="demoBanner" class="demo-banner" hidden><b>示例数据模式</b><span>以下数值仅用于演示分析功能，不代表 Khayrat 项目真实进展。</span><button id="clearData">清除示例</button></div>
         <section class="kpis">
+          <div id="progressDecisionGate" class="decision-gate" role="status"></div>
           <article><span>WBS 加权计划进度</span><b id="plannedKpi">—</b><small id="plannedNote">无权重时不计算总体值</small></article>
           <article><span>WBS 加权实际进度</span><b id="actualKpi">—</b><small id="varianceNote">无权重时展示分项统计</small></article>
           <article><span>本期计划 / 实际进度</span><b id="concreteKpi">—</b><small id="concreteNote">工程量 WBS 基准口径</small></article>
@@ -165,6 +166,7 @@
           <article><span>总体积</span><b id="shipmentVolumeKpi">0 m³</b><small>仅汇总原箱单体积</small></article>
           <article class="alert-kpi"><span>待复核记录</span><b id="shipmentAnomalyKpi">0</b><small>缺件号、数量、重量、体积或重复件号</small></article>
         </section>
+        <article class="panel"><div class="panel-title"><div><h2>批次到场与施工衔接</h2><p>按批次维护 ETA、清关、到场、安装区域及 WBS / 车间责任关系；箱单原始字段保持不变。</p></div><span id="equipmentControlCount" class="count">0 个批次</span></div><div id="equipmentBatchControls" class="control-register"></div></article>
         <article class="panel shipment-ledger">
           <div class="shipment-filter-bar">
             <label>批次<select id="shipmentBatchFilter"><option value="">全部批次</option></select></label>
@@ -201,6 +203,7 @@
         </div>
         <section class="progress-source-dashboard">
           <div id="progressVersionSummary" class="progress-version-summary"><span>尚未导入工程量/WBS 数据</span></div>
+          <div id="progressDecisionDetail" class="decision-gate" role="status"></div>
           <div id="progressQuality" class="progress-quality"></div>
           <div><h3>专业进度</h3><p class="metric-explainer"><b>Discipline Completion</b> 是专业内部完成率；<b>Contribution to Project</b> 是该专业对项目总体进度的贡献，二者不可混用。</p><div id="disciplineProgress" class="discipline-progress"></div></div>
           <div><h3>主要滞后 WBS</h3><div class="table-scroll"><table><thead><tr><th>WBS</th><th>计划累计</th><th>实际累计</th><th>偏差</th><th>项目贡献</th></tr></thead><tbody id="laggingWbsRows"></tbody></table></div></div>
