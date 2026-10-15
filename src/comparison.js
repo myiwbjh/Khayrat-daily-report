@@ -51,13 +51,13 @@ function compareActivity(group){
 }
 
 // Compare one card per standardized workshop. Source rows and photos stay intact and are only grouped for display.
-export function compareReports(records,{beforeDate,afterDate,images=[]}={}){
+export function compareReports(records,{beforeDate,afterDate,images=[],mappings=[]}={}){
   const dates=[...new Set(records.map(r=>r.date).filter(Boolean))].sort();
   afterDate ||= dates.at(-1);beforeDate ||= dates.filter(d=>d<afterDate).at(-1);
   if(!beforeDate||!afterDate||beforeDate>=afterDate)return {beforeDate,afterDate,rows:[],warnings:['需要至少两份不同日期的日报，且前期日期早于后期日期。']};
   const workshops=new Map();
   for(const record of records.filter(r=>r.date===beforeDate||r.date===afterDate)){
-    const workshop=standardWorkshop(record.workshop);if(!workshop)continue;
+    const workshop=standardWorkshop(record.workshop,mappings);if(!workshop)continue;
     if(!workshops.has(workshop))workshops.set(workshop,{workshop,before:[],after:[]});
     workshops.get(workshop)[record.date===beforeDate?'before':'after'].push(record);
   }
@@ -74,7 +74,7 @@ export function compareReports(records,{beforeDate,afterDate,images=[]}={}){
       dailyQuantity:commonUnit?change(quantityTotal(groups,'before','dailyConcrete'),quantityTotal(groups,'after','dailyConcrete')):null,
       cumulativeQuantity:commonUnit?change(quantityTotal(groups,'before','cumulativeConcrete'),quantityTotal(groups,'after','cumulativeConcrete')):null
     };
-    const related=distinct(images.filter(image=>!image.ignored&&standardWorkshop(image.relatedWorkshop)===group.workshop&&(image.relatedDate===beforeDate||image.relatedDate===afterDate)),photoKey);
+    const related=distinct(images.filter(image=>!image.ignored&&standardWorkshop(image.relatedWorkshop,mappings)===group.workshop&&(image.relatedDate===beforeDate||image.relatedDate===afterDate)),photoKey);
     const photos={before:related.filter(image=>image.relatedDate===beforeDate),after:related.filter(image=>image.relatedDate===afterDate)};
     const evidence=distinct(all.map(record=>({...evidenceOf(record),process:record.process||'',activityId:record.activityId||'',constructionContent:record.constructionContent||''})),evidenceKey),notes=unique(items.flatMap(item=>item.notes));
     const classes=items.map(item=>item.classification),classification=classes.includes('数据差异')||classes.includes('恶化')&&classes.includes('改善')?'数据差异':classes.includes('信息不足')?'信息不足':classes.includes('恶化')?'恶化':classes.includes('改善')?'改善':classes.every(value=>value==='无变化')?'无变化':'信息不足';

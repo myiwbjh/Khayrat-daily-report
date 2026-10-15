@@ -1,4 +1,4 @@
-import {latestWorkshopStates} from './workshop-status.js';
+import {latestWorkshopStates,standardWorkshop} from './workshop-status.js';
 import {parseReportDate, withProvenance} from './report-model.js';
 export const FIELDS = ['reportName','date','workshop','process','activityId','wbsWeight','plannedProgress','actualProgress','dailyConcrete','cumulativeConcrete','workUnit','staffScope','trade','chineseStaff','localStaff','equipmentName','equipmentStatus','risk','status','rawRecord','constructionContent'];
 export const ALIASES = {
@@ -23,7 +23,7 @@ export function normalizeRows(rows, source='unknown', { allowIncomplete = false 
     out.date=parseReportDate(row['日期']??row.date??out.date);if(!out.reportName)out.reportName=source;return withProvenance(out);
   }).filter(r=>(allowIncomplete||r.date) && (r.workshop||r.equipmentName||r.rawRecord||r.constructionContent));
 }
-export function filterRecords(records,{date='',workshop='',process=''}={}){return records.filter(r=>r.date&&r.workshop&&r.process&&!['date','workshop','process'].some(f=>r.reviewFields?.includes(f))&&(!date||r.date<=date)&&(!workshop||r.workshop===workshop)&&(!process||r.process===process));}
+export function filterRecords(records,{date='',workshop='',process='',mappings=[]}={}){return records.filter(r=>r.date&&r.workshop&&r.process&&!['date','workshop','process'].some(f=>r.reviewFields?.includes(f))&&(!date||r.date<=date)&&(!workshop||standardWorkshop(r.workshop,mappings)===standardWorkshop(workshop,mappings))&&(!process||r.process===process));}
 const lastBy=(records,key)=>{const map=new Map();[...records].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r=>map.set(key(r),r));return [...map.values()];};
 const avg=values=>{values=values.filter(v=>v!=null);return values.length?values.reduce((a,b)=>a+b,0)/values.length:null;};
 const sum=values=>{values=values.filter(v=>v!=null);return values.length?values.reduce((a,b)=>a+b,0):null;};
@@ -48,11 +48,4 @@ export function analyzeRecords(records,period='day'){
 }
 function quote(v){const s=String(v??'');return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s;}
 export function exportCSV(records){return [FIELDS.join(','),...records.map(r=>FIELDS.map(f=>quote(r[f])).join(','))].join('\n');}
-export const SAMPLE_RECORDS=normalizeRows([
- {'日报名称':'示例日报-01','日期':'2026-09-08','车间':'水泥粉磨车间','工序':'设备基础','计划进度':'20','实际进度':'18','当日混凝土':'120','累计混凝土':'820','中方人员':'28','属地人员':'96','设备名称':'水泥磨','设备状态':'运输中','风险制约':'清关资料待确认','工作状态':'施工中','原始记录':'示例：完成磨机基础一区浇筑'},
- {'日报名称':'示例日报-02','日期':'2026-09-09','车间':'水泥粉磨车间','工序':'设备基础','计划进度':'22','实际进度':'18','当日混凝土':'0','累计混凝土':'820','中方人员':'28','属地人员':'92','设备名称':'水泥磨','设备状态':'运输中','工作状态':'停工','原始记录':'示例：钢筋材料未到，设备基础停工'},
- {'日报名称':'示例日报-03','日期':'2026-09-10','车间':'水泥粉磨车间','工序':'设备基础','计划进度':'24','实际进度':'18','当日混凝土':'0','累计混凝土':'820','中方人员':'27','属地人员':'88','设备名称':'水泥磨','设备状态':'到港待清关','风险制约':'基础施工影响安装准备','工作状态':'停工','原始记录':'示例：材料仍未到场，无施工'},
- {'日报名称':'示例日报-04','日期':'2026-09-11','车间':'水泥粉磨车间','工序':'设备基础','计划进度':'26','实际进度':'18','当日混凝土':'0','累计混凝土':'820','中方人员':'27','属地人员':'86','设备名称':'水泥磨','设备状态':'到港待清关','工作状态':'停工','原始记录':'示例：连续第三个日报日停工'},
- {'日报名称':'示例日报-04','日期':'2026-09-11','车间':'熟料储存及输送','工序':'主体结构','计划进度':'34','实际进度':'33','当日混凝土':'75','累计混凝土':'1240','设备名称':'斗式提升机','设备状态':'已发运','工作状态':'施工中','原始记录':'示例：筒仓结构施工'}
-],'内置示例（非项目实绩）');
 

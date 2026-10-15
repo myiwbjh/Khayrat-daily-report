@@ -53,7 +53,7 @@ test('comparison merges workshop aliases, processes, activities and deduplicated
     {imageId:'p1-copy',contentSignature:'same',relatedDate:'2026-10-03',relatedWorkshop:'水泥粉磨车间',relatedProcess:'钢筋'},
     {imageId:'p2',relatedDate:'2026-10-01',relatedWorkshop:'水泥磨车间',relatedProcess:'模板'}
   ];
-  const result=compareReports(records,{images});assert.equal(result.rows.length,1);const row=result.rows[0];assert.equal(row.workshop,'水泥粉磨车间');assert.deepEqual(row.processes.before,['钢筋','模板']);assert.deepEqual(row.activities.before,['绑扎钢筋','安装模板']);assert.deepEqual(row.activities.after,['绑扎钢筋完成','模板加固']);assert.equal(row.photoCount,2);assert.equal(row.changes.dailyQuantity,4);assert.equal(row.evidence.length,5);
+  const result=compareReports(records,{images});assert.equal(result.rows.length,1);const row=result.rows[0];assert.equal(row.workshop,'水泥磨');assert.deepEqual(row.processes.before,['钢筋','模板']);assert.deepEqual(row.activities.before,['绑扎钢筋','安装模板']);assert.deepEqual(row.activities.after,['绑扎钢筋完成','模板加固']);assert.equal(row.photoCount,2);assert.equal(row.changes.dailyQuantity,4);assert.equal(row.evidence.length,5);
 });
 test('database preserves original file and local images on reload without cloud URLs',async()=>{
   const db=new ProjectDatabase(indexedDB),file=Object.assign(new Blob(['synthetic original']),{name:'test.pdf'});await db.saveOriginals([file],'batch');await db.replace([{id:'record',date:'2026-10-03',provenance:{excerpt:'source text'}}],[{imageId:'local-image',dataUrl:'data:image/png;base64,TEST'},{imageId:'cloud-image',objectPath:'private/path',signedUrl:'temporary-url',dataUrl:'data:image/png;base64,OTHER'}]);

@@ -37,6 +37,11 @@ export class SupabaseCloudRepository{
     await this.request('/rest/v1/import_audits?on_conflict=import_id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=ignore-duplicates'},body:JSON.stringify({import_id:auditId,project_id:this.projectId,files:[sourceFile],result:{type,records:payload.length,...auditResult}})});
     return {auditId,records:payload.length};
   }
+  async deleteProjectData(type,ids=[]){
+    const tables={mappings:'crosswalk_mappings'},table=tables[type];if(!table)throw new Error('该项目数据类型不支持删除');
+    for(const id of [...new Set(ids.filter(Boolean))])await this.request(`/rest/v1/${table}?project_id=eq.${encodeURIComponent(this.projectId)}&id=eq.${encodeURIComponent(id)}`,{method:'DELETE'});
+    return {deleted:ids.length};
+  }
   async saveEquipmentControl(control){
     if(control.projectId&&control.projectId!==this.projectId)throw new Error('跨项目数据拒绝保存');
     if(!control.id||!control.batchName)throw new Error('设备批次控制缺少稳定 ID 或批次名称');

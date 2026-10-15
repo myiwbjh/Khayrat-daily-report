@@ -64,12 +64,11 @@
       <section id="emptyState" class="empty-state">
         <span class="empty-icon">⇧</span><h2>导入工程日报，开始真实数据分析</h2>
         <p>支持 PDF、CSV 与 Excel（.xlsx）文件。PDF 会提取文字、表格和有效施工照片，排除页眉 Logo 等装饰图片。</p>
-        <div><button class="primary import-trigger">选择日报文件</button><button id="demoButton" class="outline">载入示例数据</button></div>
+        <div><button class="primary import-trigger">选择日报文件</button></div>
         <button id="templateButton" class="text-button">下载标准 CSV 模板 →</button>
       </section>
 
       <div id="dashboard" hidden>
-        <div id="demoBanner" class="demo-banner" hidden><b>示例数据模式</b><span>以下数值仅用于演示分析功能，不代表 Khayrat 项目真实进展。</span><button id="clearData">清除示例</button></div>
         <section class="kpis">
           <div id="progressDecisionGate" class="decision-gate" role="status"></div>
           <article><span>WBS 加权计划进度</span><b id="plannedKpi">—</b><small id="plannedNote">无权重时不计算总体值</small></article>
@@ -201,6 +200,14 @@
           <article><h3>设备 / 发货</h3><p>设备类别 → Package/Lot → 发运批次 → 设备。</p><button id="shipmentImportButton" class="primary">导入设备物流</button><button data-template="shipments" class="outline">下载模板</button><input id="shipmentInput" type="file" accept=".csv,.xlsx" hidden><b id="shipmentCount">0 条</b></article>
           <article><h3>Crosswalk / Mapping</h3><p>连接日报车间/工序、WBS、设备类别和安装区域。</p><button id="mappingImportButton" class="primary">导入映射</button><button data-template="mappings" class="outline">下载模板</button><input id="mappingInput" type="file" accept=".csv,.xlsx" hidden><b id="mappingCount">0 条</b></article>
         </div>
+        <section class="workshop-alias-panel">
+          <div class="panel-title"><div><h3>车间名称映射</h3><p>只统一逻辑关联；日报、周报、照片和 WBS 原始名称保持不变。</p></div><span id="workshopAliasSummary" class="count">0 条已合并</span></div>
+          <form id="workshopAliasForm" class="alias-form" data-write>
+            <label>别名<input name="alias" required placeholder="原始名称"></label><label>统一名称<input name="canonical" required placeholder="标准车间名称"></label><label>依据<input name="note" required placeholder="确认来源或说明"></label><button class="primary" type="submit">保存合并</button>
+          </form>
+          <div id="workshopAliasRows" class="alias-list"></div>
+          <details id="workshopAliasPending"><summary>待 Editor/Admin 确认名称 <span id="workshopAliasPendingCount">0</span></summary><div id="workshopAliasSuggestions" class="alias-list"></div></details>
+        </section>
         <section class="progress-source-dashboard">
           <div id="progressVersionSummary" class="progress-version-summary"><span>尚未导入工程量/WBS 数据</span></div>
           <div id="progressDecisionDetail" class="decision-gate" role="status"></div>

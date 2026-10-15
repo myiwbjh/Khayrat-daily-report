@@ -56,5 +56,5 @@ test('real Khayrat report excerpts preserve suspected, recovered and waiting dis
   ...['2026-09-16','2026-09-30','2026-10-07','2026-10-10'].map(date=>report(date,{id:`waste-${date}`,workshop:'污水处理',process:'土石方破碎',constructionContent:'土石方破碎施工。'})),
   report('2026-10-10',{id:'water-2026-10-10',workshop:'循环水泵房',process:'土建施工（待复核）',constructionContent:'暂未安排施工。'}),
  ],result=analyzeWorkshopStoppageEvidence(real),byWorkshop=name=>result.find(item=>item.workshop===name).current;
- assert.equal(byWorkshop('熟料输送').status,'疑似停滞');assert.equal(byWorkshop('熟料输送').days,3);assert.equal(byWorkshop('空压机房').status,'已恢复施工');assert.equal(byWorkshop('污水处理').status,'疑似停滞');assert.equal(byWorkshop('污水处理').days,4);assert.equal(byWorkshop('循环水泵房').status,'等待施工');
+ assert.equal(byWorkshop('熟料输送').status,'疑似停滞');assert.equal(byWorkshop('熟料输送').days,3);assert.equal(byWorkshop('空压机').status,'已恢复施工');assert.equal(byWorkshop('污水处理').status,'疑似停滞');assert.equal(byWorkshop('污水处理').days,4);assert.equal(byWorkshop('循环水泵房').status,'等待施工');
 });
