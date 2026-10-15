@@ -28,6 +28,16 @@ test('real workbook recomputes WBS quantities and cross-checks cached Excel tota
  assert.deepEqual(TEMPORARY_PROGRESS_BASELINES.map(item=>[item.key,item.wbs,item.total]),[['concrete','1.2',6000],['rebar','1.3',800]]);
 });
 
+test('five workbook differences expose source, mapping, weight, date and calculation details',async()=>{
+ const parsed=await parse();assert.equal(parsed.qualityIssues.length,5);assert.deepEqual(parsed.qualityIssues.map(issue=>[issue.issueId,issue.wbs,issue.difference]),[['wbs-plan-sum:1.1','1.1',-1],['plan-tracking-quantity:1.2','1.2',-4000],['temporary-baseline-plan:1.2','1.2',-4000],['plan-tracking-quantity:1.3','1.3',-400],['temporary-baseline-plan:1.3','1.3',-400]]);
+ for(const issue of parsed.qualityIssues){assert.equal(issue.sourceFile,'Khayrat粉磨站进度跟踪表.xlsx');assert.equal(issue.statisticsDate,'2026-09-30');assert.match(issue.mapping,/WBS|权重/);assert.ok(issue.sources.length);assert.ok(issue.calculation);}
+});
+
+test('confirmed basis differences stop alarming while raw issues and correction requests remain',async()=>{
+ const parsed=await parse(),decisions=[{issueId:'temporary-baseline-plan:1.2',action:'confirm-basis',note:'管理口径已确认'},{issueId:'plan-tracking-quantity:1.2',action:'correct-data',note:'待更新 Excel'}];parsed.records[0].workbookMeta.reviewDecisions=decisions;parsed.records[0].workbookMeta.batch.qualityStatus='To Be Verified';const summary=summarizeProgress(parsed.records,{asOf:'2026-10-06'});
+ assert.equal(summary.rawQualityIssues.length,5);assert.equal(summary.resolvedQualityIssues.length,1);assert.equal(summary.qualityIssues.length,4);assert.equal(summary.qualityIssues.find(issue=>issue.issueId==='plan-tracking-quantity:1.2').reviewDecision.action,'correct-data');
+});
+
 test('zero-weight leaf is excluded without double counting and disciplines keep both metrics',async()=>{
  const parsed=await parse(),summary=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),civil=summary.disciplines.find(row=>row.name==='土建工程');
  assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,26.650039215686274);close(civil.contributionToProject,13.325019607843137);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
@@ -79,4 +89,10 @@ test('an incomplete text batch retries with a separate UUID audit and idempotent
  assert.match(parsed.batch.id,/^progress:khayrat:[0-9a-f]{64}$/);assert.match(saved.auditId,uuid);assert.equal(state.audits[0].import_id,saved.auditId);assert.equal(state.audits[0].result.progressBatchId,parsed.batch.id);
  assert.equal(saved.resumed,true);assert.equal(state.batch.import_status,'complete');assert.equal(state.batch.current_version,true);assert.equal(state.measurements.size,532);assert.equal(new Set(state.measurements.keys()).size,532);
  const duplicate=await repo.saveProgressWorkbook(file,parsed);assert.equal(duplicate.duplicate,true);assert.equal(state.audits.length,1);assert.equal(state.measurements.size,532);
+});
+
+test('progress review writes append-only audit before batch metadata without changing measurements',async()=>{
+ const parsed=await parse(),calls=[],response=(json={})=>({ok:true,json:async()=>json}),fetchImpl=async(url,options={})=>{calls.push({url,method:options.method,body:options.body?JSON.parse(options.body):null});return response();},repo=new SupabaseCloudRepository({supabaseUrl:'https://test.invalid',supabaseAnonKey:'public'},{accessToken:'jwt',userId:'editor-1',fetchImpl}),issue=parsed.qualityIssues[0];
+ const saved=await repo.saveProgressReviewDecision(parsed.batch.id,{issue,action:'confirm-basis',note:'桩基总量为完成标志，分期量不适用',reviewDecisions:[],batchMetadata:{...parsed.batch,qualityIssues:parsed.qualityIssues}});
+ assert.equal(calls.length,2);assert.match(calls[0].url,/import_audits$/);assert.match(calls[1].url,/progress_import_batches/);assert.equal(calls[0].body.result.originalRecordsModified,0);assert.equal(calls[1].body.metadata.reviewDecisions[0].action,'confirm-basis');assert.equal(calls[1].body.quality_status,'To Be Verified');assert.equal(saved.reviewDecisions.length,1);
 });
