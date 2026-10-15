@@ -3,6 +3,7 @@ import {latestWorkshopStates,standardWorkshop} from './src/workshop-status.js';
 import {compareReports} from './src/comparison.js';
 import {summarizeProgress,crossAnalyze} from './src/project-data.js';
 import {renderWorkforceChart} from './src/workforce-chart.js';
+import {DEFAULT_MILESTONES,milestoneDateLabel,sortMilestones} from './src/milestones.js';
 const $=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
 const pct=v=>Number.isFinite(v)?`${v.toFixed(1)}%`:'待核';
@@ -14,6 +15,7 @@ function section(id){const s=node('section',null,'view');s.id=`view-${id}`;secti
 function panel(parent,title){const p=node('section',null,'panel');p.append(node('h2',title));parent.append(p);return p;}
 function table(parent,headers,rows,{id,empty='暂无记录'}={}){const wrap=node('div',null,'table-scroll'),t=node('table'),head=node('thead'),hr=node('tr'),body=node('tbody');if(id)body.id=id;headers.forEach(h=>hr.append(node('th',h)));head.append(hr);for(const cells of rows){const tr=node('tr');cells.forEach(v=>{const td=node('td');td.append(v instanceof Node?v:node('span',display(v)));tr.append(td);});body.append(tr);}if(!rows.length){const tr=node('tr'),td=node('td',empty);td.colSpan=headers.length;tr.append(td);body.append(tr);}t.append(head,body);wrap.append(t);parent.append(wrap);}
 function metric(parent,title,value,note){const m=node('article',null,'metric');m.append(node('span',title),node('strong',value));if(note)m.append(node('p',note,'muted'));parent.append(m);}
+function milestones(parent,items){const timeline=node('div',null,'milestone-timeline'),sorted=sortMilestones(items);if(!sorted.length){parent.append(node('p','暂无已发布里程碑','notice'));return;}for(const [index,item] of sorted.entries()){const entry=node('div',null,'milestone-entry'),before=node('i',null,`milestone-line ${item.beforeLineStyle}${index?'':' edge'}`),point=node('div',null,'milestone-node'),dot=node('i',null,'milestone-dot'),label=node('span',item.name);before.style.setProperty('--line-color',item.beforeLineColor);dot.style.setProperty('--milestone-color',item.circleColor);label.append(node('small',milestoneDateLabel(item)));if(item.description)label.append(node('em',item.description));point.append(dot,label);const after=node('i',null,`milestone-line ${item.afterLineStyle}${index===sorted.length-1?' edge':''}`);after.style.setProperty('--line-color',item.afterLineColor);entry.append(before,point,after);timeline.append(entry);}parent.append(timeline);}
 function chart(parent,points,keys,labels,{percent=true}={}){
  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 900 280');svg.classList.add('chart');svg.setAttribute('role','img');svg.setAttribute('aria-label',labels.join('与')+'趋势');
  const max=percent?100:Math.max(1,...points.flatMap(p=>keys.map(k=>Number.isFinite(p[k])?p[k]:0))),x=i=>48+i*820/Math.max(1,points.length-1),y=v=>238-v/max*208;
@@ -32,6 +34,7 @@ function render(){
  const canonicalReports=reports.map(r=>({...r,workshop:standardWorkshop(r.workshop,mappings)})),analytics=analyzeRecords(canonicalReports),p=summarizeProgress(data.progressRecords||[],{asOf}),hasRows=Boolean(data.progressRecords?.length),progress=hasRows?p:data.progress||{};
  const workforce=(analytics.workforce?.length?analytics.workforce:data.workforce||[]).filter(r=>r.date<=cutoff),latest=workforce.at(-1),overview=section('overview'),metrics=node('div',null,'metrics');overview.append(metrics);
  const provisional=progress.decisionReady===false,prefix=provisional?'暂定 ':'';if(provisional)overview.prepend(node('p',`${progress.decisionReason||'进度数据尚未通过复核'}；以下进度不可作为正式决策依据。`,'notice danger'));
+ milestones(panel(overview,'项目关键里程碑'),Array.isArray(data.milestones)?data.milestones:DEFAULT_MILESTONES);
  metric(metrics,'WBS 计划累计',prefix+pct(progress.planned));metric(metrics,'WBS 实际累计',prefix+pct(progress.actual),Number.isFinite(progress.planned)&&Number.isFinite(progress.actual)?`偏差 ${(progress.actual-progress.planned).toFixed(1)} 个百分点`:'');metric(metrics,'项目总人数',latest?.total??'待核',latest?`中方 ${latest.chinese??'待核'} · 属地 ${latest.local??'待核'} · ${latest.date}`:'待数据录入');metric(metrics,'日报记录',String(reportRows.length),`已批准公开照片 ${data.photos?.length||0} 张`);
  chart(panel(overview,'S Curve · WBS 正式进度'),progress.timeline||[],['planned','actual'],['计划','实际']);
  workshops(panel(overview,'主要车间最新施工状态'),data.reports?latestWorkshopStates(reportRows,mappings):data.workshops||[]);table(panel(overview,'人员统计'),['日期','中方','属地','合计','复核状态'],workforce.map(r=>[r.date,r.chinese,r.local,r.total,r.needsReview?'待复核':'已按报告口径统计']));
@@ -59,7 +62,7 @@ function render(){
  show();
 }
 window.addEventListener('hashchange',show);
-try{const response=await fetch('/api/public-dashboard',{cache:'no-store'});if(!response.ok)throw Error('公开看板暂时不可用，请稍后重试');data=await response.json();if(!data.published){$('publication').textContent='尚未发布公开项目状态';}else{
+try{const response=await fetch('/api/public-dashboard',{cache:'no-store'});if(!response.ok)throw Error('公开看板暂时不可用，请稍后重试');data=await response.json();if(!data.published){$('publication').textContent='暂无已发布数据';}else{
  const stale=data.validUntil&&Date.now()>Date.parse(data.validUntil);$('publication').className=stale?'notice danger':'';$('publication').textContent=stale?`公开快照已过期（有效期至 ${new Date(data.validUntil).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'})}）。请登录项目系统查看实时数据，不宜用此快照作当前决策。`:`数据截至 ${data.asOf} · 发布于 ${new Date(data.publishedAt).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'})}（伊拉克时间）· 有效至 ${new Date(data.validUntil||data.publishedAt).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'})} · 只读`;
  $('filters').hidden=false;for(const id of ['dateFilter','progressAsOf']){$(id).value=data.asOf;$(id).max=data.asOf;}
  for(const [id,field] of [['workshopFilter','workshop'],['processFilter','process']]){const values=[...new Set((data.reports||[]).map(r=>field==='workshop'?standardWorkshop(r[field],data.mappings||[]):r[field]).filter(Boolean))].sort();for(const v of values){const o=node('option',v);o.value=v;$(id).append(o);}}

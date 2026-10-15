@@ -119,6 +119,7 @@ async function submitLogin(event,kind){
     if(isPassword)await auth.signInWithPassword(email,secret,{signal:controller.signal});
     else await auth.verifyEmailLink(secret,email,{signal:controller.signal});
     if(controller.signal.aborted)return;
+    const currentUrl=new URL(location.href);currentUrl.searchParams.delete('member');history.replaceState(null,'',currentUrl.pathname+currentUrl.search+currentUrl.hash);
     errorNode.textContent='';$('#loginDialog').close();
     try{await hydrateCloud();toast('已登录，云端数据已读取');}catch{toast('已登录，云端数据读取失败，请点击云端状态重试',true);}
   }catch(error){if(!controller.signal.aborted)errorNode.textContent=error.message;}
@@ -485,6 +486,8 @@ try{
   if(cloud.configured){
     auth=await createAuthSession(config);cloud.auth=auth;auth.subscribe(updateCloudStatus);
     try{await auth.initialize();}catch(error){$('#cloudStatus').textContent='登录状态暂时无法验证 · 点击重试';}
+    const memberEntry=new URLSearchParams(location.search).get('member')==='1';
+    if(!cloud.token&&!memberEntry){location.replace('/view');return;}
     // No automatic legacy-file migration or other cloud writes on startup.
     if(cloud.token)try{await hydrateCloud();}catch(error){$('#cloudStatus').textContent='已登录 · 云端读取失败，点击重试';}
   }else await selectCacheScope('offline');

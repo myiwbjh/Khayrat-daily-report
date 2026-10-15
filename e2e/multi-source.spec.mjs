@@ -23,7 +23,7 @@ async function sandbox(page){
  return route.fulfill({status:404,json:{message:'unexpected mock endpoint'}});
  });return state;
 }
-async function login(page,user=users[0]){await page.goto('/');await expect(page.locator('html')).toHaveAttribute('data-app-ready','true');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#passwordEmail').fill(user.email);await page.locator('#loginPassword').fill('synthetic-test-password');await page.locator('#passwordLogin').click();await expect(page.locator('#loginDialog')).not.toBeVisible();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');}
+async function login(page,user=users[0]){await page.goto('/?member=1');await expect(page.locator('html')).toHaveAttribute('data-app-ready','true');await expect(page.locator('#cloudStatus')).toContainText('点击登录');await page.locator('#cloudStatus').click();await page.locator('#passwordEmail').fill(user.email);await page.locator('#loginPassword').fill('synthetic-test-password');await page.locator('#passwordLogin').click();await expect(page.locator('#loginDialog')).not.toBeVisible();await expect(page.locator('#cloudStatus')).toContainText('已自动登录');}
 async function csv(page,id,name,content,count){await page.locator(id).setInputFiles({name,mimeType:'text/csv',buffer:Buffer.from(content)});await expect(page.locator(count)).not.toHaveText('0 条');}
 const progress='WBS,分部分项,权重,月份,计划累计完成比例,实际累计完成比例\nCIV,磨机基础,60,2026-09,50,40\nELE,电气,40,2026-09,20,10\nCIV,磨机基础,60,2026-11,80,75\nELE,电气,40,2026-11,60,50';
 test('multi-source import restores on reload, uses weighted S Curve, typed alerts and leaves legacy reports unchanged',async({page})=>{
