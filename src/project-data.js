@@ -1,4 +1,5 @@
 import {parseReportDate} from './report-model.js';
+import {standardWorkshop} from './workshop-status.js';
 
 const text=value=>String(value??'').trim();
 const number=value=>{if(value===''||value==null)return null;const n=Number(String(value).replace(/[,% ]/g,''));return Number.isFinite(n)?n:null;};
@@ -91,19 +92,19 @@ const node=(type,value)=>JSON.stringify([type,text(value)]);
 export function crossAnalyze({reports=[],progress=[],shipments=[],mappings=[],asOf=new Date().toISOString().slice(0,10),projectId='khayrat'}){
   const sameProject=r=>(r.projectId||r.project_id||'khayrat')===projectId;
   progress=progress.filter(sameProject);shipments=shipments.filter(sameProject);mappings=mappings.filter(sameProject);reports=reports.filter(sameProject);
-  const findings=[],adj=new Map();
-  for(const m of mappings){const a=node(m.sourceType,m.sourceValue),b=node(m.targetType,m.targetValue);for(const [from,to] of [[a,b],[b,a]]){if(!adj.has(from))adj.set(from,new Set());adj.get(from).add(to);}}
+  const findings=[],adj=new Map(),typedNode=(type,value)=>node(type,/workshop|installation_area/i.test(type)?standardWorkshop(value,mappings):value);
+  for(const m of mappings){if(m.sourceType==='workshop_alias')continue;const a=typedNode(m.sourceType,m.sourceValue),b=typedNode(m.targetType,m.targetValue);for(const [from,to] of [[a,b],[b,a]]){if(!adj.has(from))adj.set(from,new Set());adj.get(from).add(to);}}
   const reachable=roots=>{const seen=new Set(roots),queue=[...roots];while(queue.length){for(const next of adj.get(queue.shift())||[])if(!seen.has(next)){seen.add(next);queue.push(next);}}return seen;};
   const latestProgress=analyzeProgress(progress,{asOf}),current=latestProgress.latest.filter(p=>!p.stale);
   const arrived=s=>s.siteArrivalDate?s.siteArrivalDate<=asOf:/^(现场到货|已到现场|已到场|site delivered|delivered to site)$/i.test(text(s.status));
   for(const shipment of shipments.filter(arrived)){
-    const linked=reachable([node('equipment_category',shipment.category),node('equipment_item',shipment.equipmentName),...(shipment.installationArea?[node('installation_area',shipment.installationArea)]:[])]);
+    const linked=reachable([typedNode('equipment_category',shipment.category),typedNode('equipment_item',shipment.equipmentName),...(shipment.installationArea?[typedNode('installation_area',shipment.installationArea)]:[])]);
     const delayed=current.filter(p=>(linked.has(node('wbs',p.wbs))||linked.has(node('wbs_item',p.item)))&&Number.isFinite(p.plannedCumulativePct)&&Number.isFinite(p.actualCumulativePct)&&p.actualCumulativePct-p.plannedCumulativePct<=-5);
     if(delayed.length)findings.push({type:'inference',severity:'high',title:'制约可能已由物流转为土建',facts:[`${shipment.equipmentName} 已到场/现场到货`,...delayed.map(p=>`${p.wbs||p.item} ${p.month} 实际累计 ${p.actualCumulativePct}% / 计划 ${p.plannedCumulativePct}%`)],basis:'设备物流与带类型 Crosswalk 映射后的规则判断',confirmation:'需项目团队确认基础是否具备安装条件'});
   }
   const from=new Date(new Date(`${asOf}T00:00:00Z`).getTime()-29*86400000).toISOString().slice(0,10);
   const recent=reports.filter(r=>r.date>=from&&r.date<=asOf),stopped=recent.filter(r=>/停工|暂停|\bstopped\b|\bsuspended\b/i.test(`${r.status} ${r.constructionContent} ${r.rawRecord}`));
-  const groups=new Map();for(const r of stopped){const k=node(r.workshop,r.process);if(!groups.has(k))groups.set(k,new Set());groups.get(k).add(r.date);}
+  const groups=new Map();for(const r of stopped){const k=node(standardWorkshop(r.workshop,mappings),r.process);if(!groups.has(k))groups.set(k,new Set());groups.get(k).add(r.date);}
   const stoppedDays=Math.max(0,...[...groups.values()].map(s=>s.size));
   const people=latestBy(recent.filter(r=>r.staffScope==='项目总人数'),r=>r.date,'date').sort((a,b)=>a.date.localeCompare(b.date)),total=r=>r.totalStaff??(r.chineseStaff!=null&&r.localStaff!=null?r.chineseStaff+r.localStaff:null);
   const headcountDrop=people.length>1&&total(people.at(-1))!=null&&total(people.at(-2))!=null&&total(people.at(-1))<total(people.at(-2));
