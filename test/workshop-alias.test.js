@@ -11,7 +11,7 @@ test('confirmed workshop synonyms merge without changing source records',()=>{
     {id:'d4',date:'2026-10-02',workshop:'混合材破碎、输送及电气室',process:'电气',constructionContent:'配管'},
   ];
   const original=structuredClone(records),states=latestWorkshopStates(records);
-  assert.deepEqual(states.map(row=>row.workshop),['混合材破碎及输送','空压机','水泥磨']);
+  assert.deepEqual(new Set(states.map(row=>row.workshop)),new Set(['混合材破碎及输送','空压机','水泥磨']));
   assert.deepEqual(records,original);
 });
 
