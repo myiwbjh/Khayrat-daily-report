@@ -25,6 +25,10 @@
 @media(max-width:700px){.comparison-detail{grid-template-columns:1fr}.comparison-card>summary small{white-space:normal}.comparison-detail>*{grid-column:1!important}}
 #loginDialog,#sourceDialog{border:1px solid #cbd5e1;border-radius:14px;padding:24px;width:min(720px,90vw);max-height:90vh;overflow:auto}
 #loginDialog form input{display:block;padding:12px;width:100%;margin:8px 0;border:1px solid #cbd5e1;border-radius:6px;font:inherit}
+.member-login-link{display:block;margin:14px 4px 0;padding:11px 12px;border:1px solid #3f746f;border-radius:8px;color:#e9ffff;text-decoration:none;font-weight:800;font-size:12px;background:rgba(62,169,157,.14)}
+.public-status{margin:16px 0 14px;padding:12px 14px;border:1px solid #b9ddd6;border-radius:9px;background:#e7f4f1;color:#19675f;font-size:11px}.public-status.danger{border-color:#edcaca;background:#fbeaea;color:#8f3434}
+html[data-public-viewer="true"] [data-public-hidden],html[data-public-viewer="true"] #importTop,html[data-public-viewer="true"] #publishPublic,html[data-public-viewer="true"] #manageMembers,html[data-public-viewer="true"] #setPasswordButton,html[data-public-viewer="true"] #signOutButton,html[data-public-viewer="true"] #signOutClearButton,html[data-public-viewer="true"] #editMilestones,html[data-public-viewer="true"] #visionStatus,html[data-public-viewer="true"] #visionConsent,html[data-public-viewer="true"] #visionConsentText,html[data-public-viewer="true"] #analyzeImages,html[data-public-viewer="true"] #stopVision,html[data-public-viewer="true"] #imageForm,html[data-public-viewer="true"] #viewImageSource,html[data-public-viewer="true"] #analyzeImage,html[data-public-viewer="true"] .risk-action-form,html[data-public-viewer="true"] .control-form,html[data-public-viewer="true"] #workshopAliasForm{display:none!important}
+html[data-public-viewer="true"] .profile small{font-size:0}html[data-public-viewer="true"] .profile small::after{content:'最新已批准公开数据 · 只读';font-size:9px}
 
 /* Checkboxes remain compact inside the shared filter controls. */
 .filters input[type="checkbox"] { width:16px; height:16px; padding:0; }

@@ -48,7 +48,14 @@
   "rewrites": [
     {
       "source": "/view",
-      "destination": "/viewer.html"
+      "destination": "/index.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/viewer.html",
+      "destination": "/view",
+      "permanent": true
     }
   ]
 }

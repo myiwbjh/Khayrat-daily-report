@@ -1,7 +1,7 @@
 // Latest-report evidence preview. All photo URLs remain private and are fetched on demand.
 export function renderLatestPhotoGallery(root,photos,{token='',openImage=()=>{},max=24}={}){
   root.querySelector('.latest-photo-grid')?.remove();
-  const items=photos.filter(photo=>photo?.imageId&&(photo.objectPath||photo.dataUrl)).slice(0,max);
+  const items=photos.filter(photo=>photo?.imageId&&(photo.objectPath||photo.dataUrl||photo.publicUrl)).slice(0,max);
   if(!items.length)return;
   const grid=document.createElement('div');grid.className='latest-photo-grid';
   const observer='IntersectionObserver'in window?new IntersectionObserver(entries=>{
@@ -14,6 +14,7 @@ export function renderLatestPhotoGallery(root,photos,{token='',openImage=()=>{},
     if(!photo)return;
     try{
       if(photo.dataUrl){img.src=photo.dataUrl;}
+      else if(photo.publicUrl){img.src=photo.publicUrl;}
       else{
         if(!token)throw new Error('请先登录');
         const response=await fetch('/api/thumbnail',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({imageId:photo.imageId})});

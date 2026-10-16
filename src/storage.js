@@ -27,6 +27,7 @@ export function validateRecord(record) {
 export class ReportStore {
   constructor(storage = globalThis.localStorage) { this.storage = storage; this.key=STORAGE_KEY; this.cache=null; }
   setScope(projectId,userId){this.key=`${STORAGE_KEY}:${encodeURIComponent(JSON.stringify([projectId,userId]))}`;this.cache=null;}
+  setCache(items) { this.cache=Array.isArray(items)?items:[];return this.cache; }
   all() { if(this.cache)return this.cache;try { const value = JSON.parse(this.storage.getItem(this.key) || '[]');this.cache=Array.isArray(value)?value:[];return this.cache; } catch { this.cache=[];return this.cache; } }
   write(records) { this.cache=records;const safe=records.map(({sourceExcerpt,...record})=>({...record,provenance:record.provenance?{...record.provenance,excerpt:String(record.provenance.excerpt||'').slice(0,2000)}:undefined,rawRecord:String(record.rawRecord||'').slice(0,2000)}));try{this.storage.setItem(this.key,JSON.stringify(safe));}catch(error){if(error?.name!=='QuotaExceededError')throw error;}return records; }
   duplicate(record, excludeId = '') { return this.all().find(item => item.id !== excludeId && businessKey(item) === businessKey(record)); }
