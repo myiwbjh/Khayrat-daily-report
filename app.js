@@ -25,11 +25,14 @@ import {progressDecisionState,equipmentBatchHealth,normalizeEquipmentControl,mer
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
+const publicViewer=location.pathname.replace(/\/+$/,'')==='/view';
+if(publicViewer)document.documentElement.dataset.publicViewer='true';
 const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 $('#progressAsOf').value=today;$('#progressAsOf').max=today;
 function progressCutoff(){const selected=$('#progressAsOf').value||today;return selected>today?today:selected;}
 const store = new ReportStore();
 const evidenceStore = new EvidenceStore();
+if(publicViewer){store.setCache([]);evidenceStore.setCache([]);}
 let database = new ProjectDatabase();
 let records = [];
 let projectId='khayrat',cacheUser='',scopeVersion=0,scopeReady=Promise.resolve();
@@ -40,7 +43,7 @@ let cloud = null;
 let auth=null;
 let memberRole="",isAdmin=false;
 let milestones=DEFAULT_MILESTONES.map(item=>({...item})),milestoneOriginalIds=new Set();
-function canEdit(){return !cloud?.configured||memberRole==="editor"||isAdmin;}
+function canEdit(){return !publicViewer&&(!cloud?.configured||memberRole==="editor"||isAdmin);}
 function assertEditor(){if(!canEdit())throw new Error("当前账号仅允许查看，需 Editor 权限");}
 function refreshPermissions(){document.documentElement.dataset.projectRole=canEdit()?"editor":"reader";$("#publishPublic").hidden=!canEdit();$("#manageMembers").hidden=!isAdmin;$("#editMilestones").hidden=!(cloud?.configured&&cloud?.token&&canEdit());}
 
@@ -53,7 +56,7 @@ const imageUrlCache=new Map();let thumbnailObserver=null,thumbActive=0;const thu
 function limited(task){return new Promise((resolve,reject)=>{thumbQueue.push({task,resolve,reject});pumpThumbs();});}
 function pumpThumbs(){while(thumbActive<3&&thumbQueue.length){const item=thumbQueue.shift();thumbActive++;item.task().then(item.resolve,item.reject).finally(()=>{thumbActive--;pumpThumbs();});}}
 async function evidenceUrl(image,kind='thumb'){
-  if(image.dataUrl)return image.dataUrl;if(!image.objectPath||!cloud?.token)return '';
+  if(image.dataUrl)return image.dataUrl;if(image.publicUrl)return image.publicUrl;if(!image.objectPath||!cloud?.token)return '';
   const ttl=kind==='thumb'?900:300,key=`${kind}:${image.objectPath}`,cached=imageUrlCache.get(key);if(cached?.expiresAt>Date.now()+30000)return cached.url;
   const transform=kind==='thumb'?{width:480,height:320,resize:'contain',quality:65}:null,url=await limited(()=>cloud.signedUrl(image.objectPath,ttl,transform));imageUrlCache.set(key,{url,expiresAt:Date.now()+ttl*1000});return url;
 }
@@ -86,8 +89,8 @@ async function selectCacheScope(userId){
 function updateCloudStatus(session){
   if(cloud?.userId!==(session?.user?.id||'')){memberRole='';isAdmin=false;}refreshPermissions();
   if(cloud){const userId=session?.user?.id||'';if(cloud.userId!==userId)cloud=new SupabaseCloudRepository(cloud.config,{auth,userId});cloud.token=session?.access_token||'';}
-  if(cloud?.configured)selectCacheScope(session?.user?.id||'signed-out');
-  $('#cloudStatus').textContent=!cloud?.configured?'本机模式 · 未配置云数据库':session?'已自动登录 · 云端连接':'云端已配置 · 点击登录';
+  if(cloud?.configured&&!publicViewer)selectCacheScope(session?.user?.id||'signed-out');
+  $('#cloudStatus').textContent=publicViewer?'登录 / 进入编辑':!cloud?.configured?'本机模式 · 未配置云数据库':session?'已自动登录 · 云端连接':'云端已配置 · 点击登录';
   $('#signOutButton').hidden=!session;$('#signOutClearButton').hidden=!session;$('#setPasswordButton').hidden=!session;refreshVisionStatus();
 }
 async function backfillMissingReportDates(snapshot,repo){
@@ -100,10 +103,14 @@ const version=scopeVersion,repo=cloud;await scopeReady;const membership=await re
   await hydrateImages();await syncDatabase();populateFilters();render();renderHistory();renderImages();
 }
 async function hydrateImages(){for(const image of evidenceStore.all()){image.signedUrl='';image.loadError='';}imagePage=1;imagePreviewGeneration++;}
+function openLoginDialog(){
+  $('#loginError').textContent='';$('#verifyLoginError').textContent='';$('#passwordLoginError').textContent='';clearLoginSecrets();if(!$('#loginDialog').open)$('#loginDialog').showModal();
+}
 $('#cloudStatus').onclick=async()=>{
+  if(publicViewer){location.href='/?member=1&login=1';return;}
   if(!cloud?.configured)return toast('部署环境尚未配置 Supabase',true);
   if(cloud.token){try{await hydrateCloud();toast('云端数据已读取');}catch(error){toast(error.message,true);}return;}
-  $('#loginError').textContent='';$('#verifyLoginError').textContent='';$('#passwordLoginError').textContent='';clearLoginSecrets();$('#loginDialog').showModal();
+  openLoginDialog();
 };
 $('#loginForm').onsubmit=async event=>{event.preventDefault();const button=$('#sendLogin');button.disabled=true;try{await cloud.requestMagicLink($('#loginEmail').value,location.origin+location.pathname);$('#verifyLoginEmail').value=$('#loginEmail').value;$('#loginError').textContent='邮件已发送。请在需要登录的同一浏览器打开链接，或复制尚未打开的链接，在下方验证。其他浏览器的登录不会同步到这里。';}catch{$('#loginError').textContent='登录邮件未能发送；可能达到邮件限额，请稍后重试。';}finally{button.disabled=false;}};
 function clearLoginSecrets(){$('#loginLink').value='';$('#loginPassword').value='';}
@@ -119,7 +126,7 @@ async function submitLogin(event,kind){
     if(isPassword)await auth.signInWithPassword(email,secret,{signal:controller.signal});
     else await auth.verifyEmailLink(secret,email,{signal:controller.signal});
     if(controller.signal.aborted)return;
-    const currentUrl=new URL(location.href);currentUrl.searchParams.delete('member');history.replaceState(null,'',currentUrl.pathname+currentUrl.search+currentUrl.hash);
+    const currentUrl=new URL(location.href);currentUrl.searchParams.delete('member');currentUrl.searchParams.delete('login');history.replaceState(null,'',currentUrl.pathname+currentUrl.search+currentUrl.hash);
     errorNode.textContent='';$('#loginDialog').close();
     try{await hydrateCloud();toast('已登录，云端数据已读取');}catch{toast('已登录，云端数据读取失败，请点击云端状态重试',true);}
   }catch(error){if(!controller.signal.aborted)errorNode.textContent=error.message;}
@@ -493,6 +500,18 @@ window.addEventListener('hashchange',()=>showPage(location.hash));
 resetForm(); populateFilters(); render(); renderHistory(); renderImages(); renderMilestones();
 showPage(location.hash);
 
+function publicPhoto(photo){
+  return {imageId:photo.imageId,relatedDate:photo.date||'',relatedWorkshop:photo.workshop||'',relatedProcess:photo.process||'',scene:photo.scene||'施工中',caption:photo.caption||'',sourceFile:'已批准公开快照',pageNumber:'',imageIndex:'',manualReviewed:true,visionEnabled:true,publicApproved:true,publicUrl:`/api/public-photo?id=${encodeURIComponent(photo.imageId)}`,association:{status:'published',method:'approved-public-snapshot'}};
+}
+async function hydratePublicView(){
+  const status=$('#publicStatus');status.hidden=false;status.className='public-status';status.textContent='正在读取最新已批准公开数据…';
+  $('#memberLoginLink').hidden=false;$('#emptyState').innerHTML='<h2>暂无已批准公开数据</h2><p>公开页只展示项目成员已经批准发布的内容。</p>';
+  const response=await fetch('/api/public-dashboard');if(!response.ok)throw new Error('公开工程总览暂时不可用，请稍后重试');const data=await response.json();
+  if(!data.published){records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];milestones=DEFAULT_MILESTONES.map(item=>({...item}));store.setCache([]);evidenceStore.setCache([]);populateFilters();renderMilestones();render();renderImages();status.textContent='暂无已批准公开数据';return;}
+  records=Array.isArray(data.reports)?data.reports:[];progressRecords=Array.isArray(data.progressRecords)?data.progressRecords:[];shipmentRecords=Array.isArray(data.shipments)?data.shipments:[];crosswalkMappings=Array.isArray(data.mappings)?data.mappings:[];milestones=Array.isArray(data.milestones)?sortMilestones(data.milestones):DEFAULT_MILESTONES.map(item=>({...item}));
+  store.setCache(records);evidenceStore.setCache((data.photos||[]).map(publicPhoto));$('#progressAsOf').value=data.asOf||today;$('#progressAsOf').max=data.asOf||today;populateFilters();renderMilestones();render();renderImages();
+  const published=data.publishedAt?new Date(data.publishedAt).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'}):'时间未知',valid=data.validUntil?new Date(data.validUntil).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'}):'',stale=data.validUntil&&Date.now()>Date.parse(data.validUntil);status.className=`public-status${stale?' danger':''}`;status.textContent=stale?`公开快照已过期（有效期至 ${valid}）。当前仍仅展示最后一次已批准内容，请登录编辑系统更新并重新发布。`:`数据截至 ${data.asOf||'待核'} · 发布于 ${published}（伊拉克时间）${valid?` · 有效至 ${valid}`:''} · 公开只读`;
+}
 
 async function initializeCloud(){
 try{
@@ -501,11 +520,14 @@ try{
     auth=await createAuthSession(config);cloud.auth=auth;auth.subscribe(updateCloudStatus);
     try{await auth.initialize();}catch(error){$('#cloudStatus').textContent='登录状态暂时无法验证 · 点击重试';}
     const memberEntry=new URLSearchParams(location.search).get('member')==='1';
+    const requestLogin=new URLSearchParams(location.search).get('login')==='1';
+    if(publicViewer){if(cloud.token){location.replace('/');return;}await hydratePublicView();return;}
     if(!cloud.token&&!memberEntry){location.replace('/view');return;}
+    if(!cloud.token&&memberEntry&&requestLogin)openLoginDialog();
     // No automatic legacy-file migration or other cloud writes on startup.
     if(cloud.token)try{await hydrateCloud();}catch(error){$('#cloudStatus').textContent='已登录 · 云端读取失败，点击重试';}
-  }else await selectCacheScope('offline');
-}catch{$('#cloudStatus').textContent='本机模式 · 云端配置不可用';await selectCacheScope('offline');}
+  }else if(publicViewer)await hydratePublicView();else await selectCacheScope('offline');
+}catch(error){if(publicViewer){$('#publicStatus').hidden=false;$('#publicStatus').className='public-status danger';$('#publicStatus').textContent=error.message||'公开工程总览暂时不可用，请稍后重试';$('#cloudStatus').textContent='登录 / 进入编辑';}else{$('#cloudStatus').textContent='本机模式 · 云端配置不可用';await selectCacheScope('offline');}}
 }
 await initializeCloud();
 document.documentElement.dataset.appReady="true";

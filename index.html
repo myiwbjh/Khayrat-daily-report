@@ -15,18 +15,19 @@
     <nav aria-label="主导航">
       <p>项目管理</p>
       <a class="active" href="#overview" data-view="overviewView"><span>⌂</span>工程总览</a>
-      <a href="#entry" data-view="entryView"><span>＋</span>日报录入</a>
+      <a href="#entry" data-view="entryView" data-public-hidden><span>＋</span>日报录入</a>
       <a href="#compare" data-view="compareView"><span>⇄</span>日报对比</a>
       <a href="#images" data-view="imagesView"><span>▧</span>图片证据</a>
       <a href="#workshops" data-view="workshopsView"><span>▦</span>车间状态与预警</a>
       <a href="#equipment" data-view="equipmentView"><span>◇</span>设备跟踪</a>
       <a href="#risks" data-view="risksView"><span>△</span>风险与制约</a>
       <p>数据中心</p>
-      <a href="#import" data-view="dataView"><span>⇧</span>数据导入与工程量</a>
+      <a href="#import" data-view="dataView" data-public-hidden><span>⇧</span>数据导入与工程量</a>
     </nav>
     <div class="contract-card">
       <span>设备安装目标</span><b>2026 年 12 月</b><small>合同工期起算：2026-09-07</small>
     </div>
+    <a id="memberLoginLink" class="member-login-link" href="/?member=1&amp;login=1" hidden>登录 / 进入编辑 →</a>
     <div class="profile"><span>PM</span><div><b>项目控制中心</b><small>IndexedDB 缓存 · 可选云端同步</small></div></div>
   </aside>
 
@@ -46,6 +47,7 @@
           <button id="exportButton" class="outline">⇩ 导出 CSV</button>
         </div>
       </section>
+      <p id="publicStatus" class="public-status" role="status" hidden></p>
 
       <section class="milestone-card" aria-label="项目里程碑时间轴">
         <div class="milestone-heading"><div><b>项目里程碑</b><small>独立展示，不参与正式工期、WBS 或进度计算</small></div><button id="editMilestones" class="outline" type="button" hidden>编辑里程碑</button></div>
