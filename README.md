@@ -72,7 +72,7 @@ python3 -m http.server 4173 --directory dist
 
 ### Windows 用户
 
-1. 开发机安装 Node.js 22.13+ 并运行 `npm ci`、`npm run build`；正式用户直接使用网站。
+1. 开发机安装 Node.js 24.x 并运行 `npm ci`、`npm run build`；正式用户直接使用网站。
 2. 从 [Python 官网](https://www.python.org/downloads/windows/) 安装 Python 3，安装时勾选 **Add Python to PATH**。
 3. 下载或解压本项目文件夹。
 4. 双击项目根目录的 `start-khayrat.bat`。脚本会启动本地服务器并在默认浏览器打开 <http://localhost:4173>。
