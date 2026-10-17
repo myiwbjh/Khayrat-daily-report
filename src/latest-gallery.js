@@ -14,7 +14,7 @@ export function renderLatestPhotoGallery(root,photos,{token='',openImage=()=>{},
     if(!photo)return;
     try{
       if(photo.dataUrl){img.src=photo.dataUrl;}
-      else if(photo.publicUrl){img.src=photo.publicUrl;}
+      else if(photo.publicUrl){img.src=photo.publicUrl+'&thumb=1';}
       else{
         if(!token)throw new Error('请先登录');
         const response=await fetch('/api/thumbnail',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({imageId:photo.imageId})});
