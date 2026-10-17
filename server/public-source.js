@@ -14,6 +14,16 @@ async function readPayloads(table,{restImpl=rest,query=''}={}){
   }
 }
 
+// Only a completed, activated workbook batch is authoritative. A measurement's
+// current_version flag describes its snapshot role, not whether its import won activation.
+export async function readActivePublicProgress({restImpl=rest}={}){
+  const batches=await restImpl(`/rest/v1/progress_import_batches?project_id=eq.${PROJECT_ID}&current_version=eq.true&import_status=eq.complete&select=id&order=imported_at.desc&limit=2`);
+  if(batches.length>1)throw Error('Ambiguous active progress import batch');
+  const id=batches[0]?.id;
+  if(!id)return [];
+  return readPayloads('progress_measurements',{restImpl,query:`&import_batch_id=eq.${encodeURIComponent(id)}&current_version=eq.true`});
+}
+
 function milestones(rows){
   return rows.map(row=>({id:row.id,name:row.name,date:row.milestone_date,datePrecision:row.date_precision,description:row.description,sortOrder:row.sort_order,circleColor:row.circle_color,beforeLineStyle:row.before_line_style,beforeLineColor:row.before_line_color,afterLineStyle:row.after_line_style,afterLineColor:row.after_line_color}));
 }
@@ -25,7 +35,7 @@ export function latestPublicReportDate(reports,today=baghdadDate(new Date())){
 export async function readPublicSource({restImpl=rest}={}){
   const [reports,progress,images,shipments,mappings,milestoneRows]=await Promise.all([
     readPayloads('daily_reports',{restImpl}),
-    readPayloads('progress_measurements',{restImpl,query:'&current_version=eq.true'}),
+    readActivePublicProgress({restImpl}),
     readPayloads('image_evidence',{restImpl,query:'&payload-%3E%3EpublicApproved=eq.true&payload-%3E%3EmanualReviewed=eq.true'}),
     readPayloads('equipment_shipments',{restImpl}),
     readPayloads('crosswalk_mappings',{restImpl}),
