@@ -1,4 +1,10 @@
 // Latest-report evidence preview. All photo URLs remain private and are fetched on demand.
+export function latestValidPhotoSelection(images,fallbackDate=''){
+  const eligible=images.filter(image=>image&&!image.ignored&&!image.decorative&&!image.logoConfirmed);
+  const date=[...new Set(eligible.map(image=>image.relatedDate).filter(Boolean))].sort().at(-1)||fallbackDate;
+  return {date,photos:eligible.filter(image=>image.relatedDate===date)};
+}
+
 export function renderLatestPhotoGallery(root,photos,{token='',openImage=()=>{},max=24}={}){
   root.querySelector('.latest-photo-grid')?.remove();
   const items=photos.filter(photo=>photo?.imageId&&(photo.objectPath||photo.dataUrl||photo.publicUrl)).slice(0,max);

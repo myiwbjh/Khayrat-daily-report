@@ -3,6 +3,8 @@ import {publicProjection} from '../server/public-dashboard.js';
 import {summarizeProgress} from '../src/project-data.js';
 import publicHandler from '../api/public-dashboard.js';
 import {currentPublicDashboard} from '../api/public-dashboard.js';
+import {readActivePublicProgress} from '../server/public-source.js';
+import {latestValidPhotoSelection} from '../src/latest-gallery.js';
 test('full public output allowlists all business domains and preserves WBS selection',()=>{
  const secret={sourceFile:'private.pdf',originalObjectPath:'private/path',fileHash:'secret-hash',rawRecord:'private-excerpt',user_id:'private-user',apiKey:'secret',provenance:{excerpt:'private-excerpt'}};
  const reports=[{...secret,date:'2026-10-01',workshop:'A',process:'钢筋',constructionContent:'施工',risk:'公开快照不应出现此风险原文',staffScope:'项目总人数',chineseStaff:70,localStaff:23,personnelStatistics:{...secret,scope:'project',timeBasis:'current',issues:['待核']}}];
@@ -16,4 +18,33 @@ test('public dashboard rejects mutation before database access',async()=>{const 
 
 test('incomplete and explicitly excluded reports never enter the public snapshot',()=>{const p=publicProjection([{date:'',constructionContent:'待核施工记录',needsReview:true,reviewFields:['date']},{date:'2026-10-01',workshop:'A',process:'施工',constructionContent:'旧占位',publicationEligible:false},{date:'2026-10-01',workshop:'A',process:'施工',constructionContent:'可公开'}],[],[]);assert.equal(p.reports.length,1);assert.equal(p.reports[0].constructionContent,'可公开');assert.equal(p.workshops.length,1);});
 
-test('public dashboard uses the live current version after publication authorization',async()=>{const calls=[],restImpl=async path=>{calls.push(path);if(path.includes('public_dashboard_snapshots'))return [{published_at:'2026-10-01T00:00:00Z'}];if(path.includes('daily_reports'))return path.includes('offset=0')?[{payload:{date:'2026-10-13',workshop:'A',process:'施工',constructionContent:'最新'}}]:[];if(path.includes('progress_measurements'))return [{payload:{wbs:'1',month:'2026-10-31',weight:1,plannedCumulativePct:20,actualCumulativePct:10}}];if(path.includes('project_milestones'))return [];return [];};const output=await currentPublicDashboard({restImpl,now:new Date('2026-10-17T00:00:00Z')});assert.equal(output.published,true);assert.equal(output.authorizedAt,'2026-10-01T00:00:00Z');assert.equal(output.syncedAt,'2026-10-17T00:00:00.000Z');assert.equal(output.asOf,'2026-10-13');assert.equal(output.reports[0].constructionContent,'最新');assert.ok(calls.some(path=>path.includes('current_version=eq.true')));});
+test('public dashboard uses the live current version after publication authorization',async()=>{const calls=[],restImpl=async path=>{calls.push(path);if(path.includes('public_dashboard_snapshots'))return [{published_at:'2026-10-01T00:00:00Z'}];if(path.includes('daily_reports'))return path.includes('offset=0')?[{payload:{date:'2026-10-13',workshop:'A',process:'施工',constructionContent:'最新'}}]:[];if(path.includes('progress_import_batches'))return [{id:'active-test-batch'}];if(path.includes('progress_measurements'))return [{payload:{wbs:'1',month:'2026-10-31',weight:1,plannedCumulativePct:20,actualCumulativePct:10}}];if(path.includes('project_milestones'))return [];return [];};const output=await currentPublicDashboard({restImpl,now:new Date('2026-10-17T00:00:00Z')});assert.equal(output.published,true);assert.equal(output.authorizedAt,'2026-10-01T00:00:00Z');assert.equal(output.syncedAt,'2026-10-17T00:00:00.000Z');assert.equal(output.asOf,'2026-10-13');assert.equal(output.reports[0].constructionContent,'最新');assert.ok(calls.some(path=>path.includes('current_version=eq.true')));});
+
+test('public progress only queries the completed active batch, never superseded or failed imports',async()=>{
+ const calls=[],restImpl=async path=>{calls.push(path);
+  if(path.includes('/progress_import_batches?'))return [{id:'progress:khayrat:active'}];
+  if(path.includes('/progress_measurements?'))return [{payload:{wbs:'A',weight:100,actualCumulativePct:42}}];
+  return [];
+ };
+ const progress=await readActivePublicProgress({restImpl});
+ assert.equal(progress.length,1);
+ assert.equal(progress[0].actualCumulativePct,42);
+ assert.ok(calls.some(path=>path.includes('import_status=eq.complete')&&path.includes('current_version=eq.true')));
+ assert.ok(calls.some(path=>path.includes('import_batch_id=eq.progress%3Akhayrat%3Aactive')&&path.includes('current_version=eq.true')));
+});
+test('public progress fails closed if no completed active batch exists or activation is ambiguous',async()=>{
+ let measurementsQueried=false;
+ const empty=await readActivePublicProgress({restImpl:async path=>{if(path.includes('progress_measurements'))measurementsQueried=true;return [];}});
+ assert.deepEqual(empty,[]);assert.equal(measurementsQueried,false);
+ await assert.rejects(readActivePublicProgress({restImpl:async()=>[{id:'one'},{id:'two'}]}),/Ambiguous active/);
+});
+test('latest photo day excludes ignored items, confirmed logos and decorative images before choosing date',()=>{
+ const {date,photos}=latestValidPhotoSelection([
+  {imageId:'construction',relatedDate:'2026-10-14'},
+  {imageId:'logo',relatedDate:'2026-10-16',logoConfirmed:true},
+  {imageId:'header',relatedDate:'2026-10-17',decorative:true},
+  {imageId:'ignored',relatedDate:'2026-10-18',ignored:true},
+ ],'2026-10-17');
+ assert.equal(date,'2026-10-14');assert.deepEqual(photos.map(p=>p.imageId),['construction']);
+ assert.deepEqual(latestValidPhotoSelection([{imageId:'logo',relatedDate:'2026-10-17',logoConfirmed:true}],''),{date:'',photos:[]});
+});
