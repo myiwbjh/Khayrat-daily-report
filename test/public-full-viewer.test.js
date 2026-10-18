@@ -38,13 +38,24 @@ test('public progress fails closed if no completed active batch exists or activa
  assert.deepEqual(empty,[]);assert.equal(measurementsQueried,false);
  await assert.rejects(readActivePublicProgress({restImpl:async()=>[{id:'one'},{id:'two'}]}),/Ambiguous active/);
 });
-test('latest photo day excludes ignored items, confirmed logos and decorative images before choosing date',()=>{
+test('latest report photo selection never falls back to an older photo date',()=>{
  const {date,photos}=latestValidPhotoSelection([
   {imageId:'construction',relatedDate:'2026-10-14'},
   {imageId:'logo',relatedDate:'2026-10-16',logoConfirmed:true},
   {imageId:'header',relatedDate:'2026-10-17',decorative:true},
   {imageId:'ignored',relatedDate:'2026-10-18',ignored:true},
  ],'2026-10-17');
- assert.equal(date,'2026-10-14');assert.deepEqual(photos.map(p=>p.imageId),['construction']);
- assert.deepEqual(latestValidPhotoSelection([{imageId:'logo',relatedDate:'2026-10-17',logoConfirmed:true}],''),{date:'',photos:[]});
+ assert.equal(date,'2026-10-17');assert.deepEqual(photos,[]);
+ assert.deepEqual(latestValidPhotoSelection([{imageId:'construction',relatedDate:'2026-10-14'}],''),{date:'2026-10-14',photos:[{imageId:'construction',relatedDate:'2026-10-14'}]});
 });
+
+test('public photos are complete, deterministic and newest first',()=>{
+ const base={publicApproved:true,manualReviewed:true,relatedRecordId:'report',scene:'施工中'};
+ const photos=publicProjection([],[],[
+  {...base,imageId:'older',relatedDate:'2026-10-06',relatedWorkshop:'水泥库'},
+  {...base,imageId:'latest-b',relatedDate:'2026-10-07',relatedWorkshop:'水泥磨'},
+  {...base,imageId:'latest-a',relatedDate:'2026-10-07',relatedWorkshop:'中控楼'},
+ ],{asOf:'2026-10-07'}).photos;
+ assert.deepEqual(photos.map(photo=>photo.imageId),['latest-a','latest-b','older']);
+});
+
