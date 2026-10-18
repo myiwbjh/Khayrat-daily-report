@@ -1,14 +1,15 @@
 import {rest} from './project-auth.js';
 import {publicReportAllowed} from './public-dashboard.js';
 
+import {PHOTO_AUTO_PUBLICATION} from './photo-publication.js';
 const PROJECT_ID='khayrat';
 const baghdadDate=now=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
 
 async function readPayloads(table,{restImpl=rest,query=''}={}){
   const rows=[];
   for(let offset=0;;offset+=500){
-    const page=await restImpl(`/rest/v1/${table}?project_id=eq.${PROJECT_ID}${query}&select=payload&order=${table==='image_evidence'?'image_id':'id'}&offset=${offset}&limit=500`);
-    rows.push(...page.map(row=>row.payload));
+    const page=await restImpl(`/rest/v1/${table}?project_id=eq.${PROJECT_ID}${query}&select=${table==='image_evidence'?'payload,created_at,report_id':'payload'}&order=${table==='image_evidence'?'image_id':'id'}&offset=${offset}&limit=500`);
+    rows.push(...page.map(row=>table==='image_evidence'?row:row.payload));
     if(page.length<500)return rows;
     if(offset>=20000)throw Error('Public data size limit');
   }
@@ -36,7 +37,7 @@ export async function readPublicSource({restImpl=rest}={}){
   const [reports,progress,images,shipments,mappings,milestoneRows]=await Promise.all([
     readPayloads('daily_reports',{restImpl}),
     readActivePublicProgress({restImpl}),
-    readPayloads('image_evidence',{restImpl,query:'&payload-%3E%3EpublicApproved=eq.true&payload-%3E%3EmanualReviewed=eq.true'}),
+    readPayloads('image_evidence',{restImpl,query:`&or=(and(payload->>publicApproved.eq.true,payload->>manualReviewed.eq.true),and(created_at.gt.${PHOTO_AUTO_PUBLICATION.createdAfter},payload->>relatedDate.gt.${PHOTO_AUTO_PUBLICATION.reportDateAfter},payload->>visionEnabled.eq.true))`}),
     readPayloads('equipment_shipments',{restImpl}),
     readPayloads('crosswalk_mappings',{restImpl}),
     restImpl(`/rest/v1/project_milestones?project_id=eq.${PROJECT_ID}&deleted_at=is.null&select=id,name,milestone_date,date_precision,description,sort_order,circle_color,before_line_style,before_line_color,after_line_style,after_line_color&order=milestone_date.asc,sort_order.asc,name.asc`)

@@ -501,15 +501,16 @@ resetForm(); populateFilters(); render(); renderHistory(); renderImages(); rende
 showPage(location.hash);
 
 function publicPhoto(photo){
-  return {imageId:photo.imageId,relatedDate:photo.date||'',relatedWorkshop:photo.workshop||'',relatedProcess:photo.process||'',scene:photo.scene||'施工中',caption:photo.caption||'',stage:photo.stage||'',visibleFacts:photo.visibleFacts||[],activities:photo.activities||[],equipment:photo.equipment||[],materials:photo.materials||[],structures:photo.structures||[],aiSummary:photo.aiSummary||'',inferences:photo.inferences||[],limitations:photo.limitations||[],confidence:photo.confidence,crossValidation:photo.crossValidation||null,sourceFile:'已批准公开数据',pageNumber:'',imageIndex:'',manualReviewed:true,visionEnabled:true,publicApproved:true,publicUrl:`/api/public-photo?id=${encodeURIComponent(photo.imageId)}`,association:{status:'published',method:'approved-public-view'}};
+  return {imageId:photo.imageId,relatedDate:photo.date||'',relatedWorkshop:photo.workshop||'',relatedProcess:photo.process||'',scene:photo.scene||'施工中',caption:photo.caption||'',stage:photo.stage||'',visibleFacts:photo.visibleFacts||[],activities:photo.activities||[],equipment:photo.equipment||[],materials:photo.materials||[],structures:photo.structures||[],aiSummary:photo.aiSummary||'',inferences:photo.inferences||[],limitations:photo.limitations||[],confidence:photo.confidence,crossValidation:photo.crossValidation||null,sourceFile:'已批准公开数据',pageNumber:'',imageIndex:'',manualReviewed:photo.manualReviewed===true,visionEnabled:photo.visionEnabled!==false,publicApproved:true,publicUrl:`/api/public-photo?id=${encodeURIComponent(photo.imageId)}`,association:{status:'published',method:'approved-public-view'}};
 }
 async function hydratePublicView(){
+  const previousLatest=records.map(r=>r.date).filter(Boolean).sort().at(-1)||'',followLatest=!$('#dateFilter').value||$('#dateFilter').value===previousLatest;
   const status=$('#publicStatus');status.hidden=false;status.className='public-status';status.textContent='正在读取最新已批准公开数据…';
   $('#memberLoginLink').hidden=false;$('#emptyState').innerHTML='<h2>暂无已批准公开数据</h2><p>公开页只展示项目成员已经批准发布的内容。</p>';
   const response=await fetch('/api/public-dashboard');if(!response.ok)throw new Error('公开工程总览暂时不可用，请稍后重试');const data=await response.json();
   if(!data.published){records=[];progressRecords=[];shipmentRecords=[];crosswalkMappings=[];milestones=DEFAULT_MILESTONES.map(item=>({...item}));store.setCache([]);evidenceStore.setCache([]);populateFilters();renderMilestones();render();renderImages();status.textContent='暂无已批准公开数据';return;}
   records=Array.isArray(data.reports)?data.reports:[];progressRecords=Array.isArray(data.progressRecords)?data.progressRecords:[];shipmentRecords=Array.isArray(data.shipments)?data.shipments:[];crosswalkMappings=Array.isArray(data.mappings)?data.mappings:[];milestones=Array.isArray(data.milestones)?sortMilestones(data.milestones):DEFAULT_MILESTONES.map(item=>({...item}));
-  store.setCache(records);evidenceStore.setCache((data.photos||[]).map(publicPhoto));$('#progressAsOf').value=data.asOf||today;$('#progressAsOf').max=data.asOf||today;populateFilters();renderMilestones();render();renderImages();
+  store.setCache(records);evidenceStore.setCache((data.photos||[]).map(publicPhoto));if(followLatest)$('#dateFilter').value=data.asOf||'';$('#progressAsOf').value=data.asOf||today;$('#progressAsOf').max=data.asOf||today;populateFilters();renderMilestones();render();renderImages();
   const synced=data.syncedAt||data.publishedAt,published=synced?new Date(synced).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'}):'时间未知',valid=data.validUntil?new Date(data.validUntil).toLocaleString('zh-CN',{timeZone:'Asia/Baghdad'}):'',stale=data.validUntil&&Date.now()>Date.parse(data.validUntil);status.className=`public-status${stale?' danger':''}`;status.textContent=stale?`公开快照已过期（有效期至 ${valid}）。当前仍仅展示最后一次已批准内容，请登录编辑系统更新。`:`数据截至 ${data.asOf||'待核'} · ${data.syncedAt?'自动同步于':'发布于'} ${published}（伊拉克时间）${valid?` · 有效至 ${valid}`:''} · 公开只读`;
 }
 
@@ -530,6 +531,12 @@ try{
 }catch(error){if(publicViewer){$('#publicStatus').hidden=false;$('#publicStatus').className='public-status danger';$('#publicStatus').textContent=error.message||'公开工程总览暂时不可用，请稍后重试';$('#cloudStatus').textContent='登录 / 进入编辑';}else{$('#cloudStatus').textContent='本机模式 · 云端配置不可用';await selectCacheScope('offline');}}
 }
 await initializeCloud();
+if(publicViewer){
+  let refreshing=false;
+  const refresh=async()=>{if(refreshing||document.hidden||cloud?.token||$('#imageDialog').open)return;refreshing=true;try{await hydratePublicView();}catch{$('#publicStatus').textContent='自动同步暂时失败，保留上次数据；稍后自动重试。';}finally{refreshing=false;}};
+  setInterval(refresh,60000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+}
 document.documentElement.dataset.appReady="true";
 
 
