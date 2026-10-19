@@ -40,13 +40,26 @@ test('confirmed basis differences stop alarming while raw issues and correction 
 
 test('review correction recalculates weighted KPIs through an overlay and preserves source values',async()=>{
  const parsed=await parse(),source=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M6'),before=summarizeProgress(parsed.records,{asOf:'2026-10-06'});parsed.records[0].workbookMeta.reviewDecisions=[{issueId:'plan-tracking-quantity:1.2',action:'adopt-correction',correctedValue:6000,note:'采用审核值',reviewedAt:'2026-10-15T00:00:00Z'}];const after=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),adjusted=after.selected.find(row=>row.wbs==='1.2');
- assert.equal(source.baselineTotal,10000);assert.equal(source.trackingTotal,6000);assert.equal(adjusted.reviewAdjustedBaselineTotal,6000);assert.ok(after.planned>before.planned);assert.ok(after.actual>before.actual);assert.equal(after.resolvedQualityIssues.length,1);assert.equal(after.qualityIssues.length,4);
+ assert.equal(source.baselineTotal,10000);assert.equal(source.trackingTotal,6000);assert.equal(adjusted.reviewAdjustedBaselineTotal,6000);close(after.planned,before.planned);close(after.timeline.at(-1).planned,100);assert.ok(after.actual>before.actual);assert.equal(after.resolvedQualityIssues.length,1);assert.equal(after.qualityIssues.length,4);
 });
 
 test('zero-weight leaf is excluded without double counting and disciplines keep both metrics',async()=>{
  const parsed=await parse(),summary=summarizeProgress(parsed.records,{asOf:'2026-10-06'}),civil=summary.disciplines.find(row=>row.name==='土建工程');
  assert.equal(summary.totalWeight,1);assert.deepEqual(summary.issues,[]);close(civil.actualCompletion,26.650039215686274);close(civil.contributionToProject,13.325019607843137);assert.notEqual(civil.actualCompletion,civil.contributionToProject);
  assert.equal(summary.lagging[0].wbs,'1.7');assert.equal(summary.lagging[1].wbs,'1.2');
+});
+
+test('reviewed actual denominators never inflate any monthly plan or cumulative point',async()=>{
+ const parsed=await parse();parsed.records[0].workbookMeta.reviewDecisions=[['1.2',6000],['1.3',800]].map(([wbs,correctedValue])=>({issueId:`plan-tracking-quantity:${wbs}`,action:'adopt-correction',correctedValue}));
+ const original=JSON.stringify(parsed.records),result=summarizeProgress(parsed.records,{asOf:'2026-10-19'});let running=0;
+ for(const point of result.timeline){const monthly=parsed.currentRecords.filter(row=>row.month===point.month).reduce((sum,row)=>sum+row.plannedMonthlyQuantity/row.baselineTotal*row.weight*100,0);running+=monthly;close(point.plannedMonthly,monthly);close(point.planned,running);}
+ close(running,100);assert.deepEqual(result.planValidation,[]);assert.equal(JSON.stringify(parsed.records),original);assert.deepEqual(summarizeProgress(JSON.parse(original),{asOf:'2026-10-19'}).timeline,result.timeline);
+});
+
+test('invalid plan totals remain unclamped and expose source differences for review',async()=>{
+ const parsed=await parse(),row=parsed.currentRecords.find(row=>row.wbs==='1.2'&&row.period==='M1');row.plannedMonthlyQuantity+=1000;
+ const summary=summarizeProgress(parsed.records),issue=summary.qualityIssues.find(item=>item.type==='plan-validation');
+ close(summary.timeline.at(-1).planned,103.2);assert.ok(summary.issues.includes('cumulative-over-100'));assert.equal(issue.wbs,'1.2');close(issue.difference,10);assert.equal(issue.status,'To Be Verified');assert.equal(issue.sourceFile,row.sourceFile);assert.ok(issue.sources.some(source=>source.row===row.sourceRow&&source.sheet===row.sheetName));assert.match(issue.calculation,/10000/);
 });
 
 test('same file hash is stable and a newer batch becomes current while the old snapshot remains',async()=>{
