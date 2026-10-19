@@ -13,7 +13,8 @@ test('prospective photo authorization preserves recognition and manual review, a
   const row=photo(),before=structuredClone(row);
   assert.equal(publicPhotoAllowed(row,{reports:[report]}),true);
   for(const patch of [{publicApproved:false},{visionEnabled:false},{provider:'text-only'},{analysisError:'timeout'},{analysisStatus:'running'},{aiSummary:''},{visibleFacts:[]},{analyzedAt:''},{ignored:true},{decorative:true},{logoConfirmed:true},{scene:'无法判断'},{relatedRecordId:'missing'},{relatedDate:'2026-10-13'},{sourceType:'weekly-report'}])assert.equal(publicPhotoAllowed({...row,payload:{...row.payload,...patch}},{reports:[report]}),false,JSON.stringify(patch));
-  assert.equal(publicPhotoAllowed({...row,created_at:'2026-10-18T14:00:00Z'},{reports:[report]}),false);
+  // A new report uploaded while configuration was in progress must sync after recognition.
+  assert.equal(publicPhotoAllowed({...row,created_at:'2026-10-18T14:00:00Z'},{reports:[report]}),true);
   assert.equal(publicPhotoAllowed(row),false);
   assert.equal(publicPhotoAllowed(row,{reports:[{...report,publicationEligible:false}]}),false);
   const output=publicProjection([report],[],[row],{asOf:report.date});
@@ -35,7 +36,7 @@ test('recognition completion and later edits sync without publishing or AI write
   assert.equal(output.asOf,'2026-10-15');assert.equal(output.photos.length,1);
   assert.equal(latestValidPhotoSelection(output.photos.map(p=>({...p,relatedDate:p.date})),output.asOf).photos.length,0);
   row.payload.publicApproved=false;assert.equal((await currentPublicDashboard(options)).photos.length,0);
-  assert.ok(calls.some(path=>path.includes('created_at.gt.')&&path.includes('publicApproved.eq.true')));
+  assert.ok(calls.some(path=>path.includes('relatedDate.gt.2026-10-13')&&path.includes('publicApproved.eq.true')));
 });
 
 test('public source retains trusted creation time and reads every image page',async()=>{
