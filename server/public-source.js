@@ -18,11 +18,12 @@ async function readPayloads(table,{restImpl=rest,query=''}={}){
 // Only a completed, activated workbook batch is authoritative. A measurement's
 // current_version flag describes its snapshot role, not whether its import won activation.
 export async function readActivePublicProgress({restImpl=rest}={}){
-  const batches=await restImpl(`/rest/v1/progress_import_batches?project_id=eq.${PROJECT_ID}&current_version=eq.true&import_status=eq.complete&select=id&order=imported_at.desc&limit=2`);
+  const batches=await restImpl(`/rest/v1/progress_import_batches?project_id=eq.${PROJECT_ID}&current_version=eq.true&import_status=eq.complete&select=id,metadata,quality_status&order=imported_at.desc&limit=2`);
   if(batches.length>1)throw Error('Ambiguous active progress import batch');
   const id=batches[0]?.id;
   if(!id)return [];
-  return readPayloads('progress_measurements',{restImpl,query:`&import_batch_id=eq.${encodeURIComponent(id)}&current_version=eq.true`});
+  const rows=await readPayloads('progress_measurements',{restImpl,query:`&import_batch_id=eq.${encodeURIComponent(id)}&current_version=eq.true`}),batch=batches[0];
+  return rows.map(row=>row.workbookMeta?{...row,workbookMeta:{...row.workbookMeta,batch:{...row.workbookMeta.batch,qualityStatus:batch.quality_status},reviewDecisions:batch.metadata?.reviewDecisions||row.workbookMeta.reviewDecisions||[]}}:row);
 }
 
 function milestones(rows){
