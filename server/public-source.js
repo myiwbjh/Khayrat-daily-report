@@ -37,7 +37,7 @@ export async function readPublicSource({restImpl=rest}={}){
   const [reports,progress,images,shipments,mappings,milestoneRows]=await Promise.all([
     readPayloads('daily_reports',{restImpl}),
     readActivePublicProgress({restImpl}),
-    readPayloads('image_evidence',{restImpl,query:`&or=(and(payload->>publicApproved.eq.true,payload->>manualReviewed.eq.true),and(created_at.gt.${PHOTO_AUTO_PUBLICATION.createdAfter},payload->>relatedDate.gt.${PHOTO_AUTO_PUBLICATION.reportDateAfter},payload->>visionEnabled.eq.true))`}),
+    readPayloads('image_evidence',{restImpl,query:`&or=(and(payload->>publicApproved.eq.true,payload->>manualReviewed.eq.true),and(payload->>relatedDate.gt.${PHOTO_AUTO_PUBLICATION.reportDateAfter},payload->>visionEnabled.eq.true))`}),
     readPayloads('equipment_shipments',{restImpl}),
     readPayloads('crosswalk_mappings',{restImpl}),
     restImpl(`/rest/v1/project_milestones?project_id=eq.${PROJECT_ID}&deleted_at=is.null&select=id,name,milestone_date,date_precision,description,sort_order,circle_color,before_line_style,before_line_color,after_line_style,after_line_color&order=milestone_date.asc,sort_order.asc,name.asc`)

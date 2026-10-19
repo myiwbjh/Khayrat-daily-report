@@ -1,14 +1,14 @@
 // Project owner authorized automatic publication of subsequent daily-report
-// photos on 2026-10-18. Never apply this grant retroactively to existing photos.
+// photos on 2026-10-18, after the then-latest report date below. Uploads can
+// precede configuration while recognition finishes later; use the report date.
 export const PHOTO_AUTO_PUBLICATION = Object.freeze({
-  createdAfter: '2026-10-18T14:23:33.000Z',
+  authorizedAt: '2026-10-18T14:23:33.000Z',
   reportDateAfter: '2026-10-13',
 });
 
 export function automaticPhotoAuthorized(row) {
   const p = row?.payload;
-  return Boolean(p && Date.parse(row.created_at) > Date.parse(PHOTO_AUTO_PUBLICATION.createdAfter)
-    && /^\d{4}-\d{2}-\d{2}$/.test(p.relatedDate || '')
+  return Boolean(p && /^\d{4}-\d{2}-\d{2}$/.test(p.relatedDate || '')
     && p.relatedDate > PHOTO_AUTO_PUBLICATION.reportDateAfter
     && p.sourceType !== 'weekly-report' && p.publicApproved !== false
     && p.visionEnabled === true && p.provider && p.provider !== 'text-only'
