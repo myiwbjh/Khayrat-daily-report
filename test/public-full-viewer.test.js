@@ -5,6 +5,20 @@ import publicHandler from '../api/public-dashboard.js';
 import {currentPublicDashboard} from '../api/public-dashboard.js';
 import {readActivePublicProgress} from '../server/public-source.js';
 import {latestValidPhotoSelection} from '../src/latest-gallery.js';
+import {summarizeProgressWithWeekly} from '../src/project-data.js';
+import {readFile} from 'node:fs/promises';
+import {parseKhayratProgressWorkbook} from '../src/xlsx.js';
+
+test('public refresh preserves reviewed actual basis and latest weekly cumulative without review metadata',async()=>{
+ const file=await readFile(new URL('./fixtures/Khayrat-progress-real.xlsx',import.meta.url)),parsed=await parseKhayratProgressWorkbook(file.buffer.slice(file.byteOffset,file.byteOffset+file.byteLength),'private.xlsx');
+ const decisions=[['1.2',6000],['1.3',800]].map(([wbs,correctedValue])=>({issueId:`plan-tracking-quantity:${wbs}`,action:'adopt-correction',correctedValue,note:'private-review-note',reviewedBy:'private-user'}));
+ const restImpl=async path=>path.includes('progress_import_batches')?[{id:parsed.batch.id,metadata:{reviewDecisions:decisions},quality_status:'Verified'}]:parsed.currentRecords.map(payload=>({payload}));
+ const progress=await readActivePublicProgress({restImpl}),reports=[{recordType:'weekly-quantity',sourceType:'weekly-report',date:'2026-10-18',periodStart:'2026-10-12',periodEnd:'2026-10-18',workshop:'项目',process:'混凝土',workCategory:'混凝土',workUnit:'m³',weeklyQuantity:100,weeklyCumulativeQuantity:3000,plannedTotalQuantity:6000}],asOf='2026-10-19';
+ const member=summarizeProgressWithWeekly({reports,progress,asOf}),output=publicProjection(reports,progress,[],{asOf}),anonymous=summarizeProgressWithWeekly({reports:output.reports,progress:output.progressRecords,asOf});
+ assert.equal(output.progressRecords.length,parsed.currentRecords.length);assert.deepEqual(anonymous.timeline,member.timeline);assert.equal(anonymous.actual,member.actual);assert.equal(anonymous.actualAsOf,'2026-10-18');assert.ok(anonymous.timeline.some(p=>p.actualSource==='weekly-report'));
+ const refreshed=publicProjection(reports,await readActivePublicProgress({restImpl}),[],{asOf});assert.deepEqual(refreshed.progressRecords,output.progressRecords);assert.deepEqual(refreshed.progress.timeline,output.progress.timeline);
+ for(const privateField of ['private-review-note','private-user','reviewDecisions','workbookMeta','private.xlsx'])assert.ok(!JSON.stringify(output).includes(privateField));
+});
 test('full public output allowlists all business domains and preserves WBS selection',()=>{
  const secret={sourceFile:'private.pdf',originalObjectPath:'private/path',fileHash:'secret-hash',rawRecord:'private-excerpt',user_id:'private-user',apiKey:'secret',provenance:{excerpt:'private-excerpt'}};
  const reports=[{...secret,date:'2026-10-01',workshop:'A',process:'钢筋',constructionContent:'施工',risk:'公开快照不应出现此风险原文',staffScope:'项目总人数',chineseStaff:70,localStaff:23,personnelStatistics:{...secret,scope:'project',timeBasis:'current',issues:['待核']}}];
