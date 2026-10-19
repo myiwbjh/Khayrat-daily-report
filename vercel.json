@@ -4,11 +4,11 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
-    "api/*.js": {
-      "maxDuration": 60
-    },
     "api/vision-worker.js": {
       "maxDuration": 180
+    },
+    "api/*.js": {
+      "maxDuration": 60
     }
   },
   "headers": [
