@@ -78,23 +78,13 @@ test('public free configuration exposes destination and limit only, never either
     process.env.GROQ_FREE_TIER_CONFIRMED='false';const disabled=sink();configHandler({},disabled);assert.equal(disabled.value.visionEnabled,false);
   });
 });
-test('free API still verifies actual Supabase identity, RLS row and private object before Groq call', async () => {
-  await withEnv(async()=>{
-    const calls=[];globalThis.fetch=async(url,options)=>{
-      calls.push(url);
-      if(url.endsWith('/auth/v1/user'))return response({id:'qa',email:'qa@example.test',email_confirmed_at:'2026-01-01'});
-      if(url.includes('project_members'))return response([{role:'editor',is_admin:false}]);
-      if(url.includes('vision_runs'))return response(options.method==='POST'?[{state:'running'}]:[]);
-      if(url.includes('/rest/')){assert.equal(options.headers.Authorization,'Bearer user-token');return response([{payload:{objectPath:'khayrat/batch/i1.png',sourceExcerpt:'唯一配对原文'}}]);}
-      if(url.includes('/storage/')){assert.equal(options.headers.Authorization,'Bearer user-token');return new Response('test-pixels',{headers:{'Content-Type':'image/png'}});}
-      assert.equal(url,'https://api.groq.com/openai/v1/chat/completions');return completion(result);
-    };
-    const res=sink();await visionHandler({method:'POST',headers:{authorization:'Bearer user-token'},body:{imageId:'i1',consent:true,provider:'groq',imageDataUrl:'https://evil.test/ignored'}},res);
-    assert.equal(res.code,200);assert.equal(calls.length,8);assert.equal(res.value.textFacts,'唯一配对原文');assert.equal(res.value.provider,'Groq');
-    calls.length=0;globalThis.fetch=async url=>{calls.push(url);return response({},401);};
-    const denied=sink();await visionHandler({method:'POST',headers:{authorization:'Bearer forged'},body:{imageId:'i1',consent:true,provider:'groq'}},denied);
-    assert.equal(denied.code,401);assert.equal(calls.length,1);assert.match(calls[0],/auth\/v1\/user/);
-  });
+test('queue API authenticates the actual user and enqueues without storage/model work', async () => {
+ await withEnv(async()=>{
+  process.env.SUPABASE_SERVICE_ROLE_KEY='server-only';const calls=[];
+  globalThis.fetch=async(url,options)=>{calls.push(url);if(url.endsWith('/auth/v1/user'))return response({id:'qa',email:'qa@example.test',email_confirmed_at:'2026-01-01'});if(url.includes('project_members'))return response([{role:'editor'}]);assert.ok(url.endsWith('/rpc/enqueue_vision_jobs'));assert.deepEqual(JSON.parse(options.body).p_ids,['i1']);return response([{image_id:'i1',state:'pending'}]);};
+  const res=sink();await visionHandler({method:'POST',headers:{authorization:'Bearer user-token'},body:{imageId:'i1',consent:true,provider:'groq'}},res);assert.equal(res.code,202);assert.equal(calls.length,3);assert.equal(res.value.jobs[0].state,'pending');
+  calls.length=0;globalThis.fetch=async url=>{calls.push(url);return response({},401);};const denied=sink();await visionHandler({method:'POST',headers:{authorization:'Bearer forged'},body:{imageId:'i1',consent:true,provider:'groq'}},denied);assert.equal(denied.code,401);assert.equal(calls.length,1);
+ });
 });
 test('browser binds consent to selected provider and preserves returned provenance; no keys in request', async () => {
   let sent;

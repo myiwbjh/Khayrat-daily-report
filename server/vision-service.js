@@ -1,6 +1,7 @@
 import { ApiError, imageData } from "./ai-auth.js";
 import { OPENAI_MODEL, visionProvider, freeProviderChain } from './vision-provider.js';
 import sharp from 'sharp';
+import {createHash} from 'node:crypto';
 export const MODEL = OPENAI_MODEL;
 export const VISION_IMAGE_LIMIT=8_000_000,VISION_IMAGE_TARGET=3_900_000,VISION_IMAGE_MAX_EDGE=1920,VISION_IMAGE_SOURCE_LIMIT=50_000_000;
 const list = { type: "array", items: { type: "string" } };
@@ -278,13 +279,14 @@ export async function storedImage(
     }
     chunks.push(Buffer.from(value));
   }
-  const mime = (response.headers.get("content-type") || "").split(";")[0],prepared=await prepareVisionImage(Buffer.concat(chunks),mime),
+  const mime = (response.headers.get("content-type") || "").split(";")[0],original=Buffer.concat(chunks),contentHash='sha256:'+createHash('sha256').update(original).digest('hex'),legacySignature='sha256:'+createHash('sha256').update(`data:${mime};base64,${original.toString('base64')}`).digest('hex'),prepared=await prepareVisionImage(original,mime),
     dataUrl = imageData(
       `data:${prepared.mime};base64,${prepared.buffer.toString("base64")}`,
       11_000_000,
     );
   return {
     dataUrl,
+    contentHash, legacySignature,
     evidence,
     context: evidence.sourceExcerpt || evidence.nearbyText || "",
   };

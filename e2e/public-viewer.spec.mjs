@@ -1,4 +1,15 @@
 import {test,expect} from '@playwright/test';
+
+test('public refresh preserves historical cutoff, photo filters and open browsing while accepting live changes',async({page})=>{
+ await page.clock.install();let content='旧施工',approved=true;
+ await page.route('**/api/config',r=>r.fulfill({json:{}}));
+ await page.route('**/api/public-dashboard',r=>r.fulfill({json:{published:true,asOf:'2026-10-18',syncedAt:'2026-10-19',reports:[{id:'r',date:'2026-10-18',workshop:'中控楼',process:'钢筋',constructionContent:content}],progressRecords:[],shipments:[],photos:approved?[{imageId:'i',date:'2026-10-18',workshop:'中控楼',scene:'施工中'}]:[]}}));
+ await page.route('**/api/public-photo*',r=>r.fulfill({contentType:'image/gif',body:Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==','base64')}));
+ await page.goto('/view');await expect(page.locator('#workshopRows')).toContainText('旧施工');await page.locator('#progressAsOf').fill('2026-09-30');await page.locator('#progressAsOf').dispatchEvent('change');
+ await page.getByRole('link',{name:'图片证据'}).click();await page.locator('#imageDate').fill('2026-10-18');await page.locator('#imageDate').dispatchEvent('input');await page.locator('[data-open-image]').click();await expect(page.locator('#imageDialog')).toBeVisible();
+ content='最新施工';await page.clock.fastForward(60001);await expect(page.locator('#workshopRows')).toContainText('最新施工');await expect(page.locator('#progressAsOf')).toHaveValue('2026-09-30');await expect(page.locator('#imageDate')).toHaveValue('2026-10-18');await expect(page.locator('#imageDialog')).toBeVisible();
+ approved=false;await page.clock.fastForward(60001);await expect(page.locator('#imageDialog')).not.toBeVisible();await expect(page.locator('[data-open-image]')).toHaveCount(0);
+});
 test('anonymous viewer reuses the project overview and fetches only approved output',async({page})=>{
  await page.route('**/api/config',r=>r.fulfill({json:{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'public',storageBucket:'reports',authRequired:true}}));
  await page.addInitScript(()=>{const value=JSON.stringify([{id:'private-cache',date:'2026-10-08',workshop:'私有缓存不得显示',process:'内部',constructionContent:'private-only'}]);localStorage.setItem('khayrat.dailyReports.v1',value);localStorage.setItem(`khayrat.dailyReports.v1:${encodeURIComponent(JSON.stringify(['khayrat','signed-out']))}`,value);});

@@ -80,6 +80,11 @@ export class SupabaseCloudRepository{
     await this.request(`/rest/v1/progress_import_batches?project_id=eq.${encodeURIComponent(this.projectId)}&id=eq.${encodeURIComponent(batchId)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata,quality_status:unresolved.length?'To Be Verified':'Verified',updated_at:reviewedAt})});
     return {auditId,decision,reviewDecisions:next,qualityStatus:unresolved.length?'To Be Verified':'Verified'};
   }
+  async loadVisionEvidence(){
+    const read=async(table,select)=>{const rows=[];for(let offset=0;;offset+=500){const response=await this.request(`/rest/v1/${table}?project_id=eq.${encodeURIComponent(this.projectId)}&select=${select}&order=image_id&offset=${offset}&limit=500`),page=await response.json();rows.push(...page);if(page.length<500)return rows;if(offset>=20000)throw new Error('图片数据过多');}};
+    const [images,jobs]=await Promise.all([read('image_evidence','payload'),read('vision_runs','image_id,state,error')]),status=new Map(jobs.map(job=>[job.image_id,job]));
+    return images.map(({payload})=>{const job=status.get(payload.imageId);return {...payload,...(job?{analysisStatus:job.state,analysisError:job.error||''}:{})};});
+  }
   async loadProject(){
     const read=async table=>{const rows=[],order=table==='image_evidence'?'image_id':table==='progress_import_batches'?'imported_at.desc,id.desc':'id';for(let offset=0;;offset+=500){const response=await this.request(`/rest/v1/${table}?project_id=eq.${encodeURIComponent(this.projectId)}&select=*&order=${order}&offset=${offset}&limit=500`);const page=await response.json();if(!Array.isArray(page))throw new Error('云端数据格式错误');rows.push(...page);if(page.length<500)break;}return rows;};
     const unavailableTables=[];const readProject=async table=>{try{return await read(table);}catch(error){if(['42P01','PGRST205'].includes(error.code)&&error.detail.includes(table)){unavailableTables.push(table);return [];}throw error;}};
