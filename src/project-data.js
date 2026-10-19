@@ -70,7 +70,8 @@ export function analyzeProgress(rows,{asOf=new Date().toISOString().slice(0,10)}
   const aggregate=(items,field,cutoff)=>{const byKey=new Map(items.map(r=>[key(r),r]));let sum=0,coveredWeight=0;for(const [k,w] of weights){const r=byKey.get(k),validPercent=Number.isFinite(r?.[field])&&r[field]>=0&&r[field]<=100;if(r?.month===cutoff&&validPercent){sum+=r[field]*w;coveredWeight+=w;}}
     return {value:!issues.length&&totalWeight>0&&coveredWeight===totalWeight?sum/totalWeight:null,coveredWeight,totalWeight};};
   const monthlyField=(row,kind)=>{
-    const quantity=row?.[`${kind}MonthlyQuantity`],baseline=effectiveProgressTotal(row);
+    // Actual review corrections do not revise the approved plan quantities or its denominator.
+    const quantity=row?.[`${kind}MonthlyQuantity`],baseline=kind==='planned'?(row?.baselineTotal??row?.total):effectiveProgressTotal(row);
     if(Number.isFinite(quantity)&&Number.isFinite(baseline)&&baseline>0)return quantity/baseline*100;
     const percent=row?.[`${kind}MonthlyPct`];return Number.isFinite(percent)&&percent>=0&&percent<=100?percent:null;
   };
@@ -85,7 +86,17 @@ export function analyzeProgress(rows,{asOf=new Date().toISOString().slice(0,10)}
   const planned={...sourcePlanned,value:point?.planned??null},actual={...sourceActual,value:point?.actual??null};
   if(timeline.some(item=>(item.planned??0)>100.000001||(item.actual??0)>100.000001))issues.push('cumulative-over-100');
   const normalizedLatest=latest.map(row=>{const itemTimeline=valid.filter(item=>key(item)===key(row)&&item.month<=row.month),cumulative=kind=>{const values=itemTimeline.map(item=>monthlyField(item,kind));return values.length&&values.every(value=>value!=null)?values.reduce((sum,value)=>sum+value,0):row[`${kind}CumulativePct`];};return {...row,normalizedPlannedCumulativePct:cumulative('planned'),normalizedActualCumulativePct:cumulative('actual'),stale:row.month!==cutoff};});
-  return {planned:planned.value,actual:actual.value,variance:planned.value!=null&&actual.value!=null?actual.value-planned.value:null,plannedMonthly:plannedMonthly.value,actualMonthly:actualMonthly.value,timeline,latest:normalizedLatest,cutoff,totalWeight,coverage:{planned,actual,plannedMonthly,actualMonthly},issues,selected};
+  const planValidation=[];
+  for(const [k,items] of universe){
+    if(!weights.has(k))continue;
+    // Legacy cumulative-only observations are not a complete monthly plan schedule.
+    if(!items.some(item=>Number.isFinite(item.plannedMonthlyQuantity)||Number.isFinite(item.plannedMonthlyPct)))continue;
+    const row=items[0],values=items.map(item=>monthlyField(item,'planned')),sum=values.every(value=>value!=null)?values.reduce((a,b)=>a+b,0):null,duplicate=items.length!==new Set(items.map(item=>item.month)).size;
+    const totals=new Set(items.map(item=>item.baselineTotal??item.total));
+    if(sum!=null&&Math.abs(sum-100)<=0.000001&&!duplicate&&totals.size===1)continue;
+    planValidation.push({issueId:`plan-validation:${row.wbs||row.item}`,type:'plan-validation',runtimeValidation:true,wbs:row.wbs,item:row.item,status:'To Be Verified',unit:'个百分点',difference:sum==null?null:sum-100,sourceFile:row.sourceFile,planSheet:row.sheetName,statisticsDate:months.at(-1),mapping:`WBS ${row.wbs}；权重 ${row.weight}`,reason:duplicate?'同一 WBS / 月份存在重复记录':totals.size!==1?'同一 WBS 的计划总量不一致':sum==null?'月度计划数据不完整':'分期计划累计与 100% 不一致',sources:items.map(item=>({label:`${item.month} 计划量`,sheet:item.sheetName,row:item.sourceRow,value:item.plannedMonthlyQuantity})),calculation:`各月（计划量 ÷ 原计划总量）之和 = ${sum??'未知'}%；应为 100%；计划总量 ${[...totals].join(' / ')}。实际复核值不修改计划分母。`});
+  }
+  return {planned:planned.value,actual:actual.value,variance:planned.value!=null&&actual.value!=null?actual.value-planned.value:null,plannedMonthly:plannedMonthly.value,actualMonthly:actualMonthly.value,timeline,latest:normalizedLatest,cutoff,totalWeight,coverage:{planned,actual,plannedMonthly,actualMonthly},issues,planValidation,selected};
 }
 
 export function summarizeProgress(rows,options={}){
@@ -98,7 +109,7 @@ export function summarizeProgress(rows,options={}){
   const snapshot=batch=>new Map(rows.filter(row=>row.importBatchId===batch&&row.snapshotRole==='current').map(row=>[`${row.wbs}|${row.month}`,row]));let versionDiff=null;
   if(previousBatch){const before=snapshot(previousBatch.id),after=snapshot(currentBatch),quantityAdjusted=new Set(),weightAdjusted=new Set(),planAdjusted=new Set(),beforeWbs=new Set([...before.values()].map(row=>row.wbs)),afterWbs=new Set([...after.values()].map(row=>row.wbs));let actualChange=null;for(const [key,row] of after){const old=before.get(key);if(!old)continue;if(row.baselineTotal!==old.baselineTotal)quantityAdjusted.add(row.wbs);if(row.weight!==old.weight)weightAdjusted.add(row.wbs);if(row.plannedMonthlyQuantity!==old.plannedMonthlyQuantity)planAdjusted.add(row.wbs);}const previous=analyzeProgress(rows.filter(row=>row.importBatchId===previousBatch.id),options);if(previous.actual!=null&&analysis.actual!=null)actualChange=analysis.actual-previous.actual;versionDiff={previous:previousBatch,current:batches[currentIndex],wbsAdded:[...afterWbs].filter(wbs=>!beforeWbs.has(wbs)),wbsRemoved:[...beforeWbs].filter(wbs=>!afterWbs.has(wbs)),quantityAdjusted:[...quantityAdjusted],weightAdjusted:[...weightAdjusted],planAdjusted:[...planAdjusted],actualChange};}
   const metadata=workbook.find(row=>row.workbookMeta)?.workbookMeta,rawQualityIssues=metadata?.qualityIssues||[...new Map(workbook.filter(row=>row.quantityMismatch).map(row=>[row.wbs,{type:'plan-tracking-quantity',wbs:row.wbs,item:row.item,excelPlanTotal:row.baselineTotal,baselineTotal:row.baselineTotal,trackingTotal:row.trackingTotal,unit:row.unit,difference:row.trackingTotal-row.baselineTotal,reason:'Excel 原始计划与实际跟踪总量不一致',status:'To Be Verified'}])).values()],reviewed=applyProgressReviewDecisions(rawQualityIssues,metadata?.reviewDecisions||[]);
-  return {...analysis,disciplines,lagging,versionDiff,currentBatch,rawQualityIssues:reviewed.all,qualityIssues:reviewed.pending,resolvedQualityIssues:reviewed.resolved,reviewDecisions:metadata?.reviewDecisions||[]};
+  return {...analysis,disciplines,lagging,versionDiff,currentBatch,rawQualityIssues:[...reviewed.all,...analysis.planValidation],qualityIssues:[...reviewed.pending,...analysis.planValidation],resolvedQualityIssues:reviewed.resolved,reviewDecisions:metadata?.reviewDecisions||[]};
 }
 
 const node=(type,value)=>JSON.stringify([type,text(value)]);
