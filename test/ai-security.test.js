@@ -345,69 +345,8 @@ test("actual API handler blocks unapproved feature before network; public config
   }
 });
 
-test("approved vision API authenticates, checks row and private storage before model call and returns only evidence", async () => {
-  const saved = { ...process.env },
-    oldFetch = globalThis.fetch,
-    calls = [];
-  try {
-    Object.assign(process.env, env);
-    globalThis.fetch = async (url, options) => {
-      calls.push(url);
-      if (url.endsWith("/auth/v1/user")) return response(user);
-      if(url.includes("project_members"))return response([{role:"editor",is_admin:false}]);
-      if(url.includes("vision_runs"))return response(options.method==="POST"?[{state:"running"}]:[]);
-      if (url.includes("/rest/"))
-        return response([
-          {
-            payload: {
-              objectPath: "khayrat/batch/i1.png",
-              sourceExcerpt: "绑定原文",
-            },
-          },
-        ]);
-      if (url.includes("/storage/"))
-        return new Response(Buffer.from("image"), {
-          headers: { "Content-Type": "image/png" },
-        });
-      assert.equal(url, "https://api.openai.com/v1/chat/completions");
-      assert.equal(
-        options.headers.Authorization,
-        `Bearer ${env.OPENAI_API_KEY}`,
-      );
-      return response({
-        choices: [
-          {
-            finish_reason: "stop",
-            message: { content: JSON.stringify(result) },
-          },
-        ],
-        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-      });
-    };
-    const r = sink();
-    await visionHandler(
-      {
-        method: "POST",
-        headers: request.headers,
-        body: {
-          imageId: "i1",
-          consent: true,
-          imageDataUrl: "https://malicious.test/ignored",
-        },
-      },
-      r,
-    );
-    assert.equal(r.code, 200);
-    assert.equal(r.value.textFacts, "绑定原文");
-    assert.equal(r.value.reviewRecommended, true);
-    assert.equal(r.value.model, MODEL);
-    assert.equal(calls.length, 8);
-    assert.ok(!JSON.stringify(r.value).includes(env.OPENAI_API_KEY));
-  } finally {
-    for (const key of Object.keys(process.env))
-      if (!(key in saved)) delete process.env[key];
-    Object.assign(process.env, saved);
-    globalThis.fetch = oldFetch;
-  }
+test("background API refuses paid providers even with existing owner approval", async () => {
+ const saved={...process.env},oldFetch=globalThis.fetch;
+ try{Object.assign(process.env,env);let calls=0;globalThis.fetch=()=>{calls++;throw Error('must not send');};const r=sink();await visionHandler({method:'POST',headers:request.headers,body:{imageId:'i1',consent:true}},r);assert.equal(r.code,403);assert.equal(calls,0);}
+ finally{for(const key of Object.keys(process.env))if(!(key in saved))delete process.env[key];Object.assign(process.env,saved);globalThis.fetch=oldFetch;}
 });
-
