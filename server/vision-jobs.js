@@ -32,7 +32,7 @@ export function savedAnalysis(evidence){
 }
 export function evidenceAnalysis(analysis,context,fingerprint=null){
   const r=analysis.result;
-  return {...r,tags:[...r.equipment,...r.materials],aiSummary:r.summary,textFacts:context,evidenceType:'AI推断',reviewRecommended:true,manualReviewed:false,visionEnabled:true,provider:analysis.provider,model:analysis.model,usage:analysis.usage||null,analyzedAt:analysis.analyzedAt,cached:analysis.cached||false,fallback:analysis.fallback||false,attempts:analysis.attempts||[],...(fingerprint?{perceptualHash:fingerprint.perceptualHash,differenceHash:fingerprint.differenceHash,imageWidth:fingerprint.width,imageHeight:fingerprint.height,imageAspectRatio:fingerprint.aspectRatio,fingerprintAlgorithm:fingerprint.algorithm}:{})};
+  return {...r,tags:[...r.equipment,...r.materials],aiSummary:r.summary,textFacts:context,evidenceType:'AI推断',reviewRecommended:true,manualReviewed:false,visionEnabled:true,provider:analysis.provider,model:analysis.model,usage:analysis.usage||null,analyzedAt:analysis.analyzedAt,cached:analysis.cached||false,fallback:analysis.fallback||false,attempts:analysis.attempts||[],...(fingerprint?{perceptualHash:fingerprint.perceptualHash,differenceHash:fingerprint.differenceHash,imageWidth:fingerprint.width,imageHeight:fingerprint.height,aspectRatio:fingerprint.aspectRatio,imageAspectRatio:fingerprint.aspectRatio,fingerprintAlgorithm:fingerprint.algorithm}:{})};
 }
 export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=fetch,storedImageImpl=storedImage,visionImpl=visionImage,reviewImpl=reviewEvidence}={}){
   const jobs=await rpc('claim_vision_job',{},restImpl),job=jobs?.[0];
