@@ -37,7 +37,7 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
     if(url.pathname==='/rest/v1/vision_runs')return route.fulfill({json:state.jobs});
     if(url.pathname==='/rest/v1/project_members')return route.fulfill({json:[{role:'editor',is_admin:false}]});
     if(url.pathname.startsWith('/rest/v1/')){
-      const table=url.pathname.split('/').at(-1);if(['progress_measurements','equipment_shipments','crosswalk_mappings'].includes(table))return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});const store=table==='daily_reports'?state.reports:table==='image_evidence'?state.images:state.audits;
+      const table=url.pathname.split('/').at(-1);if(['progress_measurements','equipment_shipments','crosswalk_mappings'].includes(table))return route.fulfill({status:404,json:{code:'PGRST205',message:`public.${table} not found`}});if(!['daily_reports','image_evidence','import_audits'].includes(table))return route.fulfill({json:[]});const store=table==='daily_reports'?state.reports:table==='image_evidence'?state.images:state.audits;
       if(request.method()==='GET')return route.fulfill({json:store});
       state.posts++;if(state.failSave&&table==='image_evidence'){state.failSave=false;return route.fulfill({status:503,json:{message:'synthetic database failure'}});}
       for(const row of [request.postDataJSON()].flat()){const key=table==='daily_reports'?'id':table==='image_evidence'?'image_id':'import_id',existing=store.findIndex(x=>x[key]===row[key]);if(existing<0)store.push(row);else store[existing]=row;}
