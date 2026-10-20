@@ -4,6 +4,7 @@ import {ApiError, requireConsent} from './ai-auth.js';
 import {rest, serviceAccess} from './project-auth.js';
 import {requireChainConsent} from './vision-provider.js';
 import {storedImage, visionImage, validateVision, VISION_SCHEMA} from './vision-service.js';
+import {findDuplicateEvidence,consolidateEvidence} from './photo-dedupe-service.js';
 
 const rpc=(name,body,restImpl)=>restImpl(`/rest/v1/rpc/${name}`,{method:'POST',body:JSON.stringify(body)});
 export function freeConsent(body,env=process.env){
@@ -29,14 +30,14 @@ export function savedAnalysis(evidence){
   try{validateVision(result);}catch{return null;}
   return {result,provider:p.provider,model:p.model,usage:p.usage,analyzedAt:p.analyzedAt,fallback:p.fallback||false,attempts:p.attempts||[],cached:true};
 }
-export function evidenceAnalysis(analysis,context){
+export function evidenceAnalysis(analysis,context,fingerprint=null){
   const r=analysis.result;
-  return {...r,tags:[...r.equipment,...r.materials],aiSummary:r.summary,textFacts:context,evidenceType:'AI推断',reviewRecommended:true,manualReviewed:false,visionEnabled:true,provider:analysis.provider,model:analysis.model,usage:analysis.usage||null,analyzedAt:analysis.analyzedAt,cached:analysis.cached||false,fallback:analysis.fallback||false,attempts:analysis.attempts||[]};
+  return {...r,tags:[...r.equipment,...r.materials],aiSummary:r.summary,textFacts:context,evidenceType:'AI推断',reviewRecommended:true,manualReviewed:false,visionEnabled:true,provider:analysis.provider,model:analysis.model,usage:analysis.usage||null,analyzedAt:analysis.analyzedAt,cached:analysis.cached||false,fallback:analysis.fallback||false,attempts:analysis.attempts||[],...(fingerprint?{perceptualHash:fingerprint.perceptualHash,differenceHash:fingerprint.differenceHash,imageWidth:fingerprint.width,imageHeight:fingerprint.height,imageAspectRatio:fingerprint.aspectRatio,fingerprintAlgorithm:fingerprint.algorithm}:{})};
 }
 export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=fetch,storedImageImpl=storedImage,visionImpl=visionImage,reviewImpl=reviewEvidence}={}){
   const jobs=await rpc('claim_vision_job',{},restImpl),job=jobs?.[0];
   if(!job)return {processed:0};
-  let analysis=null,contentHash=null;
+  let analysis=null,contentHash=null,duplicate=null;
   try{
     freeConsent(job.consent,env);
     const member=await restImpl(`/rest/v1/project_members?project_id=eq.khayrat&user_id=eq.${encodeURIComponent(job.requested_by)}&select=role`);
@@ -45,7 +46,9 @@ export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=
     if(member[0]?.role!=='editor'||!identity.email_confirmed_at||!allowed.includes(String(identity.email||'').toLowerCase()))throw new ApiError(403,'提交者的 AI 或 Editor 授权已失效');
     const image=await storedImageImpl(job.image_id,serviceAccess(env),{env,fetchImpl});
     contentHash=image.contentHash;
+    duplicate=await findDuplicateEvidence({...image.evidence,imageId:job.image_id},{...image.fingerprint,contentHash},{restImpl,env,fetchImpl,storedImageImpl}).catch(()=>null);
     analysis=job.analysis?{...job.analysis,cached:true}:savedAnalysis(image.evidence);
+    if(!analysis&&duplicate)analysis=savedAnalysis(duplicate.candidate);
     if(!analysis){
       const cached=await restImpl(`/rest/v1/vision_runs?project_id=eq.khayrat&state=eq.success&content_hash=eq.${encodeURIComponent(contentHash)}&select=analysis&limit=1`);
       if(cached[0]?.analysis){analysis={...cached[0].analysis,cached:true};validateVision(analysis.result);}
@@ -62,8 +65,10 @@ export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=
       // Pixel facts are reusable; cross-validation belongs to this report/date.
       analysis={...analysis,result:{...analysis.result,crossValidation:{status:'insufficient-evidence',reason:'复用相同图片的视觉事实；当前日报关联需复核'}}};
     }
-    await rpc('finish_vision_job',{p_id:job.image_id,p_lease:job.updated_at,p_analysis:analysis,p_evidence:evidenceAnalysis(analysis,image.context),p_hash:contentHash,p_error:null},restImpl);
-    let automaticReview='pending';try{await reviewImpl({imageIds:[job.image_id],restImpl});automaticReview='complete';}catch{/* Recognition is saved; the editor refresh retries source review without a model call. */}
+    const completedEvidence={...image.evidence,...evidenceAnalysis(analysis,image.context,image.fingerprint),imageContentHash:contentHash,imageId:job.image_id};
+    await rpc('finish_vision_job',{p_id:job.image_id,p_lease:job.updated_at,p_analysis:analysis,p_evidence:evidenceAnalysis(analysis,image.context,image.fingerprint),p_hash:contentHash,p_error:null},restImpl);
+    const consolidated=duplicate?await consolidateEvidence(completedEvidence,duplicate.candidate,duplicate.match,{env,fetchImpl}):null;
+    let automaticReview='pending';try{await reviewImpl({imageIds:[consolidated?.canonical?.imageId||job.image_id],restImpl});automaticReview='complete';}catch{/* Recognition is saved; the editor refresh retries source review without a model call. */}
     return {processed:1,state:'success',cached:Boolean(analysis.cached),automaticReview};
   }catch(error){
     // Preserve a completed model result even if evidence persistence failed.

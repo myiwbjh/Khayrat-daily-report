@@ -4,6 +4,9 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
+    "api/photo-repair.js": {
+      "maxDuration": 300
+    },
     "api/vision-worker.js": {
       "maxDuration": 180
     },
