@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {extractWeeklyFacts} from '../src/pptx.js';
+import {extractWeeklyFacts,weeklyPhotoPeriod} from '../src/pptx.js';
 import {analyzeWeeklyCrossSource,summarizeProgressWithWeekly} from '../src/project-data.js';
 
 const page=(pageNumber,texts,tables=[])=>({pageNumber,texts,tables,notes:[],pictures:[]});
@@ -12,6 +12,14 @@ const pages=[
   page(15,['现场机具情况'],[[['序号','种类','型号','数量(台)','使用情况','备注'],['1','挖掘机','550','1','在用','']]]),
   page(17,['工程量'],[[['序号','单位工程','单位','预估总量','累计完成量','完成百分比','上周计划量','本周完成量','下周计划','备注'],['6','钢筋','T','800','412','51.5%','26','28','26',''],['7','混凝土','m³','6000','3091','51.5%','200','211','200','']]])
 ];
+
+test('weekly photo period follows explicit labels and geometry, never the report date or picture order',()=>{
+ const page={texts:['六、主要工作开展情况','上周','本周'],textShapes:[{text:'上周',x:500,y:100,width:500,height:100},{text:'本周',x:6500,y:100,width:500,height:100}]};
+ assert.equal(weeklyPhotoPeriod(page,{x:6200,width:5000}).period,'本周');
+ assert.equal(weeklyPhotoPeriod(page,{x:300,width:5000}).period,'上周');
+ assert.equal(weeklyPhotoPeriod({...page,textShapes:[]},{x:6200,width:5000}).period,'待核对');
+ assert.equal(weeklyPhotoPeriod({texts:['六、主要工作开展情况'],textShapes:[]},{x:0,width:100}).period,'本周');
+});
 
 test('PPTX native weekly facts retain period, quantities, workforce and provenance',()=>{
   const result=extractWeeklyFacts(pages,{fileHash:'sample-hash',sourceFile:'第25期.pptx'}),concrete=result.records.find(row=>row.workCategory==='混凝土'),rebar=result.records.find(row=>row.workCategory==='钢筋'),people=result.records.find(row=>row.recordType==='personnel-summary');
