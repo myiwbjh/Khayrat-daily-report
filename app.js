@@ -431,7 +431,7 @@ function refreshVisionStatus(){
 }
 async function openImage(imageId){
   const image=evidenceStore.all().find(i=>i.imageId===imageId);if(!image)return;
-  const review=evidenceReviewState(image),record=store.all().find(r=>r.id===image.relatedRecordId)||store.all().find(r=>businessKey(r)===image.relatedRecordKey);
+  const review=evidenceReviewState(image),record=store.all().find(r=>r.id===(review.code==='auto-passed'?image.automaticReview.resolvedRecordId:image.relatedRecordId))||store.all().find(r=>r.id===image.relatedRecordId)||store.all().find(r=>businessKey(r)===image.relatedRecordKey);
   $('#imageFull').removeAttribute('src');$('#imageFull').alt='高清原图加载中';$('#retryImage').hidden=true;
   $('#directEvidence').textContent=`PDF 原始嵌入图片；${image.sourceFile}，第 ${image.pageNumber} 页，图 ${image.imageIndex}。关联：${image.association?.status||'未关联'}`;
   $('#imageTextFacts').textContent=image.sourceExcerpt||image.nearbyText||'未关联，不能用整页文字代替';
@@ -439,7 +439,8 @@ async function openImage(imageId){
   $('#imageCrossValidation').textContent=image.analysisError?`识别失败：${image.analysisError}；可点击重新分析重试。`:image.crossValidation?`${image.crossValidation.status}：${image.crossValidation.reason}`:'尚未交叉验证';
   $('#imageCalibrationStatus').className=`review-state ${review.tone}`;$('#imageCalibrationStatus').textContent=review.label;
   $('#inferenceSummary').textContent=[image.aiSummary,...image.inferences||[],...image.limitations||[]].filter(Boolean).join('；')+`（模型置信度 ${Math.round((image.confidence||0)*100)}%，仅作原文补充）`;
-  $('#imageProvenance').textContent=JSON.stringify({bbox:image.bbox,components:image.components,association:image.association,activities:image.relatedActivities,model:image.model,usage:image.usage,analyzedAt:image.analyzedAt,initialAnalysis:image.initialAnalysis||image.originalAnalysis,latestAutomaticAnalysis:image.automaticAnalysis,manualReview:image.manualReview,calibration:image.calibration,calibrationHistory:image.calibrationHistory},null,2);
+  $('#imageAutomaticReview').textContent=image.automaticReview?[image.automaticReview.status==='passed'?'核对通过':'待人工核对',image.automaticReview.reason,...(image.automaticReview.basis||[]).map(b=>`${b.sourceFile||b.kind}${b.pageNumber?' · 第 '+b.pageNumber+' 页':''}${b.blockId?' · '+b.blockId:''}：${b.excerpt||b.date||''}`)].join('\n'):'尚无自动核对记录';
+  $('#imageProvenance').textContent=JSON.stringify({automaticReview:image.automaticReview,automaticReviewHistory:image.automaticReviewHistory,bbox:image.bbox,components:image.components,association:image.association,activities:image.relatedActivities,model:image.model,usage:image.usage,analyzedAt:image.analyzedAt,initialAnalysis:image.initialAnalysis||image.originalAnalysis,latestAutomaticAnalysis:image.automaticAnalysis,manualReview:image.manualReview,calibration:image.calibration,calibrationHistory:image.calibrationHistory},null,2);
   $('#analyzeImage').disabled=visionBusy||!cloud?.config.visionEnabled||!cloud?.token||!canEdit()||!canRecognizeEvidence(image);$('#analyzeImage').textContent=image.analysisStatus==='failed'?'重试识别':'识别此图片';
   const form=$('#imageForm');for(const key of ['imageId','relatedDate','relatedWorkshop','relatedProcess','scene','evidenceType','caption'])form.elements[key].value=image[key]||'';
   form.elements.tags.value=(image.tags||[]).join(', ');form.elements.reviewedVisibleFacts.value=(image.visibleFacts||[]).join('\n');form.elements.reviewedInferences.value=(image.inferences||[]).join('\n');form.elements.critical.checked=!!image.critical;form.elements.ignored.checked=!!image.ignored;form.elements.publicApproved.checked=!!image.publicApproved;form.elements.logoConfirmed.checked=!!image.logoConfirmed;
@@ -490,6 +491,7 @@ async function refreshVisionProgress(){
   if(refreshingVision||publicViewer||!cloud?.token||!memberRole||!cloudHydrated||document.hidden)return;
   const version=scopeVersion,repo=cloud;refreshingVision=true;
   try{
+    if(canEdit()&&evidenceStore.all().some(i=>evidenceStatus({...i,automaticReview:undefined})==='review')){try{const review=await serverAction('/api/evidence-review',{});if(version!==scopeVersion)return;$('#autoReviewStatus').textContent=review.updated?`自动核对：${review.passed} 张通过，${review.pending} 张保留人工核对。`:'已复用原文核对记录；来源不足或冲突继续保留人工核对。';}catch{if(version===scopeVersion)$('#autoReviewStatus').textContent='自动核对暂时失败；保留人工核对，下次刷新重试。';}}
     const images=await repo.loadVisionEvidence();if(version!==scopeVersion)return;
     evidenceStore.mergeRemote(images,{authoritative:true});await syncDatabase();renderImages();render();
   }catch{/* Keep the last successful view and retry on the next refresh. */}finally{refreshingVision=false;}
@@ -520,7 +522,7 @@ resetForm(); populateFilters(); render(); renderHistory(); renderImages(); rende
 showPage(location.hash);
 
 function publicPhoto(photo){
-  return {imageId:photo.imageId,publicEvidenceStatus:photo.evidenceStatus,calibration:{decision:photo.reviewState?.code},relatedDate:photo.date||'',relatedWorkshop:photo.workshop||'',relatedProcess:photo.process||'',scene:photo.scene||'施工中',caption:photo.caption||'',stage:photo.stage||'',visibleFacts:photo.visibleFacts||[],activities:photo.activities||[],equipment:photo.equipment||[],materials:photo.materials||[],structures:photo.structures||[],aiSummary:photo.aiSummary||'',inferences:photo.inferences||[],limitations:photo.limitations||[],confidence:photo.confidence,crossValidation:photo.crossValidation||null,sourceFile:'已批准公开数据',pageNumber:'',imageIndex:'',manualReviewed:photo.manualReviewed===true,visionEnabled:photo.visionEnabled!==false,publicApproved:true,publicUrl:`/api/public-photo?id=${encodeURIComponent(photo.imageId)}`,association:{status:'published',method:'approved-public-view'}};
+  return {imageId:photo.imageId,publicEvidenceStatus:photo.evidenceStatus,automaticReview:photo.automaticReview,calibration:{decision:photo.reviewState?.code},relatedDate:photo.date||'',relatedWorkshop:photo.workshop||'',relatedProcess:photo.process||'',scene:photo.scene||'施工中',caption:photo.caption||'',stage:photo.stage||'',visibleFacts:photo.visibleFacts||[],activities:photo.activities||[],equipment:photo.equipment||[],materials:photo.materials||[],structures:photo.structures||[],aiSummary:photo.aiSummary||'',inferences:photo.inferences||[],limitations:photo.limitations||[],confidence:photo.confidence,crossValidation:photo.crossValidation||null,sourceFile:'已批准公开数据',pageNumber:'',imageIndex:'',manualReviewed:photo.manualReviewed===true,visionEnabled:photo.visionEnabled!==false,publicApproved:true,publicUrl:`/api/public-photo?id=${encodeURIComponent(photo.imageId)}`,association:{status:'published',method:'approved-public-view'}};
 }
 async function hydratePublicView(){
   const previousCutoff=$('#progressAsOf').value,openedDetails=$$('details[open]').map(n=>({id:n.id,key:n.querySelector('summary')?.textContent})),expandedDates=$$('[data-history-toggle][aria-expanded="true"]').map(n=>n.dataset.historyToggle);

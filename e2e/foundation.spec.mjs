@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {resolve} from 'node:path';
+import {reviewEvidence} from '../server/evidence-review.js';
 
 const fixture=resolve('test/fixtures/synthetic-reports.pdf');
 const user={id:'00000000-0000-4000-8000-000000000001',aud:'authenticated',role:'authenticated',email:'qa@example.test',email_confirmed_at:'2026-10-04T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}};
@@ -11,6 +12,16 @@ async function sandbox(page,{configured=true,failUpload=false,failSave=false,vis
     const request=route.request(),url=new URL(request.url());
     if(url.origin==='http://127.0.0.1:4173'){
       if(url.pathname==='/api/config')return route.fulfill({json:configured?{supabaseUrl:'https://qa.supabase.test',supabaseAnonKey:'synthetic-public-key',storageBucket:'test-reports',ocrEnabled:false,visionEnabled,...(freeVision?{visionProviderId:"groq",visionProvider:"Groq",visionModel:"qwen/qwen3.8-27b",visionMinIntervalMs:visionInterval,visionCostNotice:"Free Plan：额度用尽停止",visionPrivacyNotice:"Groq 处理图片"}:{}),authRequired:true}:{supabaseUrl:'',supabaseAnonKey:''}});
+      if(url.pathname==='/api/evidence-review'){
+        if(!state.autoReview)return route.fulfill({json:{updated:0,passed:0,pending:0}});
+        state.reviewCalls=(state.reviewCalls||0)+1;
+        const result=await reviewEvidence({restImpl:async(path,options={})=>{
+          const u=new URL(path,'https://test');
+          if(options.method==='PATCH'){const row=state.images.find(r=>`eq.${r.image_id}`===u.searchParams.get('image_id'));if(`eq.${row.updated_at}`!==u.searchParams.get('updated_at'))return [];Object.assign(row,JSON.parse(options.body));return [row];}
+          return structuredClone(u.pathname.endsWith('/image_evidence')?state.images:u.pathname.endsWith('/daily_reports')?state.reports:[]);
+        }});
+        return route.fulfill({json:result});
+      }
       if(url.pathname==='/api/vision'){
         state.visionCalls.push({body:request.postDataJSON(),authorization:request.headers().authorization});
         if(state.visionCalls.length>visionQuotaAfter)return route.fulfill({status:429,json:{error:"免费视觉额度已达上限；不会自动切换付费服务。"}});
@@ -207,4 +218,23 @@ test('evidence status filters count all cloud rows and update after retry, uploa
 test('empty member gallery discovers remotely uploaded evidence on refresh',async({page})=>{
   await page.clock.install();const state=await sandbox(page);await login(page);await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('[data-evidence-status=unrecognized]')).toHaveText('未识别（0）');
   state.images.push({image_id:'new',payload:{imageId:'new',objectPath:'private/new',sourceFile:'new.pdf',visionEnabled:false}});await page.clock.fastForward(30001);await expect(page.locator('[data-evidence-status=unrecognized]')).toHaveText('未识别（1）');
+});
+
+test('source review automatically clears false positives across pages, retains conflict locations and updates counts without vision',async({page})=>{
+  await page.clock.install();const state=await sandbox(page),excerpt='中控楼基础钢筋绑扎、模板安装，基础尚未浇筑';
+  state.reports.push({id:'r',payload:{id:'r',sourceFile:'review.pdf',date:'2026-10-18',workshop:'中控楼',process:'基础',sourceExcerpt:excerpt,constructionContent:excerpt,pageNumber:2,documentLayout:[{pageNumber:1,text:'施工日报\n报告日期：2026年10月18日'},{pageNumber:2,blocks:[{id:'b',workshop:'中控楼',excerpt,region:{x:0,y:0,width:100,height:100}}]}]}});
+  for(let n=0;n<26;n++){
+    const payload={imageId:`review-${n}`,sourceFile:n===25?'missing.pdf':'review.pdf',pageNumber:2,bbox:{x:10,y:10,width:20,height:20},relatedRecordId:'r',relatedDate:'2026-10-18',relatedWorkshop:'中控室',relatedProcess:'基础',association:{needsReview:true},visionEnabled:true,provider:'Groq',scene:'施工中',visibleFacts:[n===24?'基础已经浇筑完成':'基础钢筋、模板可见'],inferences:[],objectPath:`private/${n}.gif`};
+    state.images.push({image_id:payload.imageId,payload,updated_at:'2026-10-19T00:00:00Z'});
+    state.objects.set(`/storage/v1/object/test-reports/${payload.objectPath}`,Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==','base64'));
+  }
+  await login(page);await page.getByRole('link',{name:'图片证据'}).click();
+  const pending=page.locator('[data-evidence-status=review]');
+  await expect(pending).toHaveText('待人工核对（26）');await pending.click();await expect(page.locator('[data-open-image]')).toHaveCount(20);
+  await expect(page.locator('#autoReviewStatus')).toContainText('已复用');
+  state.autoReview=true;await page.clock.fastForward(30001);await expect(pending).toHaveText('待人工核对（2）');await expect(page.locator('[data-open-image]')).toHaveCount(2);
+  await page.locator('[data-open-image="review-24"]').click();await expect(page.locator('#imageAutomaticReview')).toContainText('明确相反事实');await expect(page.locator('#imageAutomaticReview')).toContainText('第 2 页');await page.locator('#closeImageDialog').click();
+  await page.locator('[data-evidence-status=all]').click();await page.locator('[data-open-image]').filter({hasText:'核对通过'}).first().click();await expect(page.locator('#imageCalibrationStatus')).toHaveText('核对通过');await expect(page.locator('#imageAutomaticReview')).toContainText(excerpt);await expect(page.locator('#analyzeImage')).toBeDisabled();await page.locator('#closeImageDialog').click();
+  await page.clock.fastForward(30001);await expect(page.locator('#autoReviewStatus')).toContainText('已复用');
+  expect(state.images[0].payload.automaticReviewHistory).toEqual([]);expect(state.images[0].payload.association.needsReview).toBe(true);expect(state.visionCalls).toHaveLength(0);
 });
