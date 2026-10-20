@@ -53,11 +53,12 @@ export class EvidenceStore {
   setCache(items) { this.cache=Array.isArray(items)?items:[];return this.cache; }
   write(items) { const safe=items.map(stripBinary);this.cache=items;try{this.storage.setItem(this.key,JSON.stringify(safe));}catch(error){if(error?.name!=='QuotaExceededError')throw error;}return items; }
   merge(incoming) { const items = this.all().map(x=>({...x})), ids = new Set(items.map(x => x.imageId)); let added = 0; for (const image of incoming) { if (ids.has(image.imageId)) continue; items.push({...image}); ids.add(image.imageId); added++; } const safe=this.write(items);return { added, items:safe }; }
-  mergeRemote(incoming) {
-    const items=this.all().map(item=>({...item})),byId=new Map(items.map((item,index)=>[item.imageId,index]));let added=0,updated=0;
+  mergeRemote(incoming,{authoritative=false}={}) {
+    const remoteIds=new Set(incoming.map(item=>item.imageId));
+    const items=this.all().filter(item=>!authoritative||remoteIds.has(item.imageId)||item.cloudSyncPending).map(item=>({...item})),byId=new Map(items.map((item,index)=>[item.imageId,index]));let added=0,updated=0;
     for(const remote of incoming){const index=byId.get(remote.imageId);if(index==null){items.push({...remote});byId.set(remote.imageId,items.length-1);added++;continue;}
       const local=items[index],binary=Object.fromEntries(['dataUrl','blob','rawPdf'].filter(key=>local[key]!=null).map(key=>[key,local[key]]));
-      items[index]=local.cloudSyncPending?{...remote,...local,...binary}:{...local,...remote,...binary,cloudSyncPending:false};updated++;
+      items[index]=local.cloudSyncPending?{...remote,...local,...binary}:{...(!authoritative?local:{}),...remote,...binary,cloudSyncPending:false};updated++;
     }
     return {added,updated,items:this.write(items)};
   }
