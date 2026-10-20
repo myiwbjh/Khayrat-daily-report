@@ -12,6 +12,8 @@ export function evidenceStatus(image={}){
   if(['calibrated','acceptable','confirmed-conflict'].includes(decision))return 'recognized';
   if(decision==='unresolved')return 'review';
   if(image.manualReviewed&&image.manualReview?.confirmed)return 'recognized';
+  if(image.automaticReview?.status==='passed')return 'recognized';
+  if(image.automaticReview?.status==='needs-review')return 'review';
   const association=image.association||{};
   return image.crossValidation?.status==='potential-conflict'||association.needsReview===true||['unassociated','ambiguous','conflict'].includes(association.status)||!image.relatedDate||!image.relatedWorkshop||!(image.relatedRecordId||image.relatedRecordKey)||image.dateAssociation?.needsReview===true||image.reviewFields?.some(field=>['date','workshop','association'].includes(field))?'review':'recognized';
 }

@@ -1,3 +1,4 @@
+import {reviewEvidence} from './evidence-review.js';
 import {timingSafeEqual} from 'node:crypto';
 import {ApiError, requireConsent} from './ai-auth.js';
 import {rest, serviceAccess} from './project-auth.js';
@@ -32,7 +33,7 @@ export function evidenceAnalysis(analysis,context){
   const r=analysis.result;
   return {...r,tags:[...r.equipment,...r.materials],aiSummary:r.summary,textFacts:context,evidenceType:'AI推断',reviewRecommended:true,manualReviewed:false,visionEnabled:true,provider:analysis.provider,model:analysis.model,usage:analysis.usage||null,analyzedAt:analysis.analyzedAt,cached:analysis.cached||false,fallback:analysis.fallback||false,attempts:analysis.attempts||[]};
 }
-export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=fetch,storedImageImpl=storedImage,visionImpl=visionImage}={}){
+export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=fetch,storedImageImpl=storedImage,visionImpl=visionImage,reviewImpl=reviewEvidence}={}){
   const jobs=await rpc('claim_vision_job',{},restImpl),job=jobs?.[0];
   if(!job)return {processed:0};
   let analysis=null,contentHash=null;
@@ -62,7 +63,8 @@ export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=
       analysis={...analysis,result:{...analysis.result,crossValidation:{status:'insufficient-evidence',reason:'复用相同图片的视觉事实；当前日报关联需复核'}}};
     }
     await rpc('finish_vision_job',{p_id:job.image_id,p_lease:job.updated_at,p_analysis:analysis,p_evidence:evidenceAnalysis(analysis,image.context),p_hash:contentHash,p_error:null},restImpl);
-    return {processed:1,state:'success',cached:Boolean(analysis.cached)};
+    let automaticReview='pending';try{await reviewImpl({imageIds:[job.image_id],restImpl});automaticReview='complete';}catch{/* Recognition is saved; the editor refresh retries source review without a model call. */}
+    return {processed:1,state:'success',cached:Boolean(analysis.cached),automaticReview};
   }catch(error){
     // Preserve a completed model result even if evidence persistence failed.
     // Retrying then uses this result instead of spending another model call.

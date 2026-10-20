@@ -24,6 +24,8 @@ export function evidenceReviewState(image={}){
   if(decision==='acceptable')return {code:decision,label:'差异可接受',tone:'good',alert:false};
   if(decision==='confirmed-conflict')return {code:decision,label:'真实冲突',tone:'danger',alert:true};
   if(decision==='unresolved')return {code:decision,label:'无法确认',tone:'warning',alert:true};
+  if(image.automaticReview?.status==='passed')return {code:'auto-passed',label:'核对通过',tone:'good',alert:false};
+  if(image.automaticReview?.status==='needs-review')return {code:'auto-pending',label:'待人工核对',tone:'warning',alert:true};
   const status=image.crossValidation?.status;
   if(status==='potential-conflict')return {code:'pending',label:'待人工校准',tone:'danger',alert:true};
   if(status==='consistent')return {code:'consistent',label:'图文一致',tone:'good',alert:false};

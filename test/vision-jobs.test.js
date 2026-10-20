@@ -26,8 +26,8 @@ test('durable queue serializes workers, deduplicates enqueue, retains review and
  }finally{await db.close();}
 });
 
-function workerFixture({cached=null,legacy=null,failure=null,revoked=false}={}){
- let modelCalls=0,finish;
+function workerFixture({cached=null,legacy=null,failure=null,revoked=false,reviewFailure=false}={}){
+ let modelCalls=0,finish,reviewCalls=0;
  const restImpl=async(path,options)=>{
   if(path.endsWith('/claim_vision_job'))return [{image_id:'new',requested_by:user,consent,updated_at:'lease'}];
   if(path.includes('project_members'))return [{role:revoked?'reader':'editor'}];
@@ -37,10 +37,10 @@ function workerFixture({cached=null,legacy=null,failure=null,revoked=false}={}){
   if(path.endsWith('/finish_vision_job')){finish=JSON.parse(options.body);return true;}
   throw Error('unexpected '+path);
  };
- return {run:()=>processVisionJob({env,restImpl,storedImageImpl:async()=>({dataUrl:'private pixels',contentHash:'sha256:same',context:'new report',evidence:{relatedDate:'2026-10-19'}}),visionImpl:async()=>{modelCalls++;if(failure)throw failure;return analysis;}}),get calls(){return modelCalls;},get finish(){return finish;}};
+ return {run:()=>processVisionJob({env,restImpl,reviewImpl:async({imageIds})=>{assert.ok(finish);assert.deepEqual(imageIds,['new']);reviewCalls++;if(reviewFailure)throw Error('review temporarily unavailable');},storedImageImpl:async()=>({dataUrl:'private pixels',contentHash:'sha256:same',context:'new report',evidence:{relatedDate:'2026-10-19'}}),visionImpl:async()=>{modelCalls++;if(failure)throw failure;return analysis;}}),get reviewCalls(){return reviewCalls;},get calls(){return modelCalls;},get finish(){return finish;}};
 }
 test('new upload is analyzed once, identical hash reuses pixels without reusing report cross-validation',async()=>{
- const first=workerFixture();assert.equal((await first.run()).state,'success');assert.equal(first.calls,1);assert.equal(first.finish.p_hash,'sha256:same');assert.equal(first.finish.p_evidence.textFacts,'new report');
+ const first=workerFixture();assert.equal((await first.run()).state,'success');assert.equal(first.calls,1);assert.equal(first.reviewCalls,1);assert.equal(first.finish.p_hash,'sha256:same');assert.equal(first.finish.p_evidence.textFacts,'new report');
  const duplicate=workerFixture({cached:first.finish.p_analysis});assert.equal((await duplicate.run()).cached,true);assert.equal(duplicate.calls,0);assert.equal(duplicate.finish.p_evidence.crossValidation.status,'insufficient-evidence');
 });
 test('legacy recognition is reused; provider failures and revoked permission persist a visible failure',async()=>{
@@ -53,3 +53,5 @@ test('worker requires a dedicated secret; enqueue validates consent, IDs and nev
  await assert.rejects(()=>enqueueVision({...consent,imageIds:'bad'},{user:{id:user}},{env}),e=>e.status===400);
  await assert.rejects(()=>enqueueVision({imageId:'a',provider:'groq'},{user:{id:user}},{env}),e=>e.status===403);
 });
+
+test('automatic review failure never fails completed recognition or invokes vision again',async()=>{const f=workerFixture({reviewFailure:true}),result=await f.run();assert.equal(result.state,'success');assert.equal(result.automaticReview,'pending');assert.equal(f.calls,1);assert.equal(f.reviewCalls,1);assert.equal(f.finish.p_error,null);});
