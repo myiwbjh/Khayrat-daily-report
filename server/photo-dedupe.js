@@ -22,8 +22,8 @@ export async function imageFingerprint(buffer,mime,{sharpImpl=sharp}={}){
 
 export function samePhoto(left,right){
   if(left?.contentHash&&left.contentHash===right?.contentHash)return {match:true,method:'sha256',perceptualDistance:0,differenceDistance:0};
-  const aspectDelta=Math.abs(Number(left?.aspectRatio)-Number(right?.aspectRatio)),perceptualDistance=hammingHex(left?.perceptualHash,right?.perceptualHash),differenceDistance=hammingHex(left?.differenceHash,right?.differenceHash),match=aspectDelta<=0.02&&perceptualDistance<=4&&differenceDistance<=4;
-  return {match,method:match?'perceptual':'none',perceptualDistance,differenceDistance,aspectDelta};
+  const leftAspect=Number(left?.aspectRatio??left?.imageAspectRatio),rightAspect=Number(right?.aspectRatio??right?.imageAspectRatio),aspectDelta=Math.abs(leftAspect-rightAspect),perceptualDistance=hammingHex(left?.perceptualHash,right?.perceptualHash),differenceDistance=hammingHex(left?.differenceHash,right?.differenceHash),sameShape=aspectDelta<=0.02&&perceptualDistance<=4&&differenceDistance<=4,resizedCopy=perceptualDistance<=2&&differenceDistance<=5,match=sameShape||resizedCopy;
+  return {match,method:match?(sameShape?'perceptual':'perceptual-resized'):'none',perceptualDistance,differenceDistance,aspectDelta};
 }
 
 export function duplicateCandidate(current,candidate){
