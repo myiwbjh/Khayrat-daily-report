@@ -36,3 +36,13 @@ test('open public overview follows new reports and completed photos on automatic
   complete=true;await page.clock.fastForward(60001);await expect(page.locator('.latest-photo-tile')).toHaveCount(1);await expect(page.locator('#dateFilter')).toHaveValue('2026-10-14');
   await expect(page.locator('.latest-photo-grid img')).toHaveAttribute('data-thumb-image','new-photo');
 });
+
+
+test('public status filters use only server-approved states and refresh counts without exposing write controls',async({page})=>{
+  await page.clock.install();let pending=true;
+  await page.route('**/api/config',r=>r.fulfill({json:{}}));
+  await page.route('**/api/public-dashboard',r=>r.fulfill({json:{published:true,asOf:'2026-10-18',reports:[],progressRecords:[],photos:[{imageId:'approved',date:'2026-10-18',workshop:'中控楼',visionEnabled:true,evidenceStatus:pending?'review':'recognized',reviewState:{code:pending?'pending':'acceptable',label:pending?'待人工校准':'差异可接受',tone:'good',alert:false}}]}}));
+  await page.route('**/api/public-photo*',r=>r.fulfill({contentType:'image/gif',body:Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==','base64')}));
+  await page.goto('/view');await page.getByRole('link',{name:'图片证据'}).click();const review=page.locator('[data-evidence-status=review]');await expect(review).toHaveText('待人工核对（1）');await expect(page.locator('[data-evidence-status=unrecognized]')).toHaveText('未识别（0）');await review.click();await page.locator('[data-open-image]').click();for(const id of ['analyzeImages','analyzeImage','imageForm'])await expect(page.locator('#'+id)).not.toBeVisible();await page.locator('#closeImageDialog').click();
+  pending=false;await page.clock.fastForward(60001);await expect(review).toHaveText('待人工核对（0）');await expect(review).toHaveAttribute('aria-pressed','true');await expect(page.locator('[data-open-image]')).toHaveCount(0);await page.locator('[data-evidence-status=all]').click();await expect(page.locator('[data-open-image]')).toHaveCount(1);await expect(page.locator('#imageGallery')).toContainText('差异可接受');
+});

@@ -82,8 +82,8 @@ export class SupabaseCloudRepository{
   }
   async loadVisionEvidence(){
     const read=async(table,select)=>{const rows=[];for(let offset=0;;offset+=500){const response=await this.request(`/rest/v1/${table}?project_id=eq.${encodeURIComponent(this.projectId)}&select=${select}&order=image_id&offset=${offset}&limit=500`),page=await response.json();rows.push(...page);if(page.length<500)return rows;if(offset>=20000)throw new Error('图片数据过多');}};
-    const [images,jobs]=await Promise.all([read('image_evidence','payload'),read('vision_runs','image_id,state,error')]),status=new Map(jobs.map(job=>[job.image_id,job]));
-    return images.map(({payload})=>{const job=status.get(payload.imageId);return {...payload,...(job?{analysisStatus:job.state,analysisError:job.error||''}:{})};});
+    const [images,jobs]=await Promise.all([read('image_evidence','payload,image_id,updated_at'),read('vision_runs','image_id,state,error')]),status=new Map(jobs.map(job=>[job.image_id,job]));
+    return images.map(({payload,image_id,updated_at})=>{const imageId=image_id||payload.imageId,job=status.get(imageId);return {...payload,imageId,uploadedAt:payload.uploadedAt||updated_at,...(job?{analysisStatus:job.state,analysisError:job.error||''}:{})};});
   }
   async loadProject(){
     const read=async table=>{const rows=[],order=table==='image_evidence'?'image_id':table==='progress_import_batches'?'imported_at.desc,id.desc':'id';for(let offset=0;;offset+=500){const response=await this.request(`/rest/v1/${table}?project_id=eq.${encodeURIComponent(this.projectId)}&select=*&order=${order}&offset=${offset}&limit=500`);const page=await response.json();if(!Array.isArray(page))throw new Error('云端数据格式错误');rows.push(...page);if(page.length<500)break;}return rows;};

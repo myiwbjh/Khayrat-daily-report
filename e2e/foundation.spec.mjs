@@ -179,3 +179,32 @@ test('pending password success after cancellation never logs in on cancel or Esc
 });
 
 
+
+
+test('evidence status filters count all cloud rows and update after retry, upload and audited review',async({page})=>{
+  await page.clock.install();const state=await sandbox(page,{visionEnabled:true});
+  const analysis={visionEnabled:true,provider:'Groq',scene:'施工中',visibleFacts:['SYNTHETIC original'],inferences:[],crossValidation:{status:'consistent'}};
+  state.reports.push({id:'r',payload:{id:'r',date:'2026-10-18',workshop:'中控楼',process:'钢筋',constructionContent:'模板'}});
+  for(let n=0;n<32;n++)state.images.push({image_id:`i${n}`,payload:{...analysis,imageId:`i${n}`,sourceFile:'synthetic.pdf',pageNumber:1,imageIndex:n,objectPath:`khayrat/i${n}.gif`,relatedDate:'2026-10-18',relatedWorkshop:'中控楼',relatedProcess:'钢筋',relatedRecordId:'r',visionEnabled:n>=4,automaticAnalysis:n>=4?analysis:null,...(n>=4&&n<8?{crossValidation:{status:'potential-conflict',reason:'SYNTHETIC conflict'}}:{})}});
+  state.jobs.push({image_id:'i0',state:'failed',error:'SYNTHETIC quota'},{image_id:'i1',state:'pending'},{image_id:'i2',state:'running'});
+  for(const row of state.images)state.objects.set(`/storage/v1/object/test-reports/${row.payload.objectPath}`,Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==','base64'));
+  await login(page);await page.getByRole('link',{name:'图片证据'}).click();
+  const unrecognized=page.locator('[data-evidence-status=unrecognized]'),review=page.locator('[data-evidence-status=review]');
+  await expect(unrecognized).toHaveText('未识别（4）');await expect(review).toHaveText('待人工核对（4）');await expect(page.locator('[data-open-image]')).toHaveCount(20);
+  await page.locator('#imageNext').click();await expect(page.locator('[data-open-image]')).toHaveCount(12);await expect(unrecognized).toHaveText('未识别（4）');
+  await unrecognized.click();await expect(unrecognized).toHaveAttribute('aria-pressed','true');await expect(page.locator('[data-open-image]')).toHaveCount(4);await expect(page.locator('#imagePageStatus')).toContainText('第 1 / 1 页');await expect(page.locator('#imageGallery')).toContainText('识别失败：SYNTHETIC quota');
+  await page.locator('#imageDate').fill('2026-10-17');await page.locator('#imageDate').dispatchEvent('input');await expect(page.locator('[data-open-image]')).toHaveCount(0);await expect(unrecognized).toHaveText('未识别（4）');await page.locator('#imageDate').fill('2026-10-18');await page.locator('#imageDate').dispatchEvent('input');
+  await page.locator('#visionConsent').check();await page.locator('#analyzeImages').click();await expect.poll(()=>state.visionCalls.length).toBe(1);expect(state.visionCalls[0].body.imageIds.sort()).toEqual(['i0','i3']);expect(state.visionCalls[0].body.retry).toBe(true);
+  completeJobs(state);await page.clock.fastForward(30001);await expect(unrecognized).toHaveText('未识别（0）');await expect(page.locator('[data-open-image]')).toHaveCount(0);
+  state.images.push({image_id:'remote-upload',payload:{...state.images[0].payload,imageId:'remote-upload',visionEnabled:false,automaticAnalysis:null}});await page.clock.fastForward(30001);await expect(unrecognized).toHaveText('未识别（1）');await expect(page.locator('[data-open-image]')).toHaveCount(1);
+  await review.click();await expect(page.locator('[data-open-image]')).toHaveCount(4);await page.locator('[data-open-image="i4"]').click();await expect(page.locator('#analyzeImage')).toBeDisabled();await expect(page.locator('#imageFull')).toHaveJSProperty('naturalWidth',1);
+  await page.locator('#imageForm [name=calibrationDecision]').selectOption('unresolved');await page.locator('#imageForm [name=calibrationNote]').fill('SYNTHETIC: needs site confirmation');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();await expect(review).toHaveText('待人工核对（4）');
+  await page.locator('[data-open-image="i4"]').click();await page.locator('#imageForm [name=calibrationDecision]').selectOption('confirmed-conflict');await page.locator('#imageForm [name=calibrationNote]').fill('SYNTHETIC: confirmed by source review');await page.locator('#imageForm [type=submit]').click();await expect(page.locator('#imageDialog')).not.toBeVisible();await expect(review).toHaveText('待人工核对（3）');await expect(page.locator('[data-open-image="i4"]')).toHaveCount(0);
+  const reviewed=state.images.find(i=>i.image_id==='i4').payload;expect(reviewed.calibrationHistory.map(c=>c.decision)).toEqual(['unresolved']);expect(reviewed.reviewHistory).toHaveLength(1);expect(reviewed.automaticAnalysis.visibleFacts).toEqual(['SYNTHETIC original']);expect(reviewed.initialAnalysis.visibleFacts).toEqual(['SYNTHETIC original']);expect(state.visionCalls).toHaveLength(1);
+  await page.reload();await page.getByRole('link',{name:'图片证据'}).click();await expect(review).toHaveText('待人工核对（3）');await page.locator('#imageWorkshop').selectOption('中控楼');await expect(page.locator('#imagePageStatus')).toContainText('共 33 张');
+});
+
+test('empty member gallery discovers remotely uploaded evidence on refresh',async({page})=>{
+  await page.clock.install();const state=await sandbox(page);await login(page);await page.getByRole('link',{name:'图片证据'}).click();await expect(page.locator('[data-evidence-status=unrecognized]')).toHaveText('未识别（0）');
+  state.images.push({image_id:'new',payload:{imageId:'new',objectPath:'private/new',sourceFile:'new.pdf',visionEnabled:false}});await page.clock.fastForward(30001);await expect(page.locator('[data-evidence-status=unrecognized]')).toHaveText('未识别（1）');
+});
