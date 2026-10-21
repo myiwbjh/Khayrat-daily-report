@@ -9,6 +9,7 @@ import { createTemplateXLSX } from './src/xlsx-writer.js';
 import { parsePDFDocument } from './src/pdf.js';
 import { parsePPTXDocument } from './src/pptx.js';
 import { evidenceStatus,evidenceStatusCounts,canRecognizeEvidence } from './src/evidence-status.js';
+import {isHistoricalWeeklyPhoto,matchesPhotoReport} from './src/evidence-association.js';
 import { evidenceReviewState,findEvidenceConflicts,imageUploadTime,sortImageEvidence,summarizeImageEvidence } from './src/image-analysis.js';
 import {analyzeWorkshopStoppageEvidence} from './src/stoppage-evidence.js';
 import { ProjectDatabase } from './src/database.js';
@@ -207,7 +208,7 @@ function warningMeta(status = '') {
   if (/等待施工|未开展施工|数据不足/.test(status)) return { label: '数据不足', level: 'warning' };
   return { label: '正常', level: 'good' };
 }
-function imagesFor(record,images=evidenceStore.all()) { const key=businessKey(record); return images.filter(image=>!image.ignored&&(image.relatedRecordId===record.id||image.relatedRecordKey===key||(!image.relatedRecordId&&image.association?.status!=='unassociated'&&businessKey({date:image.relatedDate,workshop:image.relatedWorkshop,process:image.relatedProcess})===key))); }
+function imagesFor(record,images=evidenceStore.all()) { return images.filter(image=>matchesPhotoReport(image,record,crosswalkMappings)); }
 
 function render() {
   renderProjectData();
@@ -411,7 +412,7 @@ $('#restoreButton').onclick=()=>$('#restoreInput').click(); $('#restoreInput').o
 function downloadXLSX(){const a=document.createElement('a');a.href=URL.createObjectURL(createTemplateXLSX());a.download='Khayrat工程日报标准模板.xlsx';a.click();URL.revokeObjectURL(a.href);toast('Excel 模板已生成');} $('#excelTemplateButton').onclick=downloadXLSX;
 function renderImages({resetPage=false}={}) {
   if(!publicViewer&&cloud?.configured&&cloud.token&&!cloudHydrated){filteredEvidence=[];$('#imageGallery').innerHTML='<div class="empty-state compact">正在同步云端图片状态…</div>';$('#imagePagination').hidden=true;$('#imageStorageCount').textContent='同步中';for(const button of $$('[data-evidence-status]'))button.textContent=button.dataset.evidenceStatus==='all'?'全部':`${button.dataset.evidenceStatus==='unrecognized'?'未识别':'待人工核对'}（…）`;return;}
-  const stored=evidenceStore.all(),all=stored.filter(image=>!image.decorative&&!image.logoConfirmed),date=$('#imageDate').value,workshop=$('#imageWorkshop').value,process=$('#imageProcess').value,source=$('#imageSource').value.toLowerCase(),critical=$('#criticalOnly').checked;
+  const stored=evidenceStore.all(),all=stored.filter(image=>!image.decorative&&!image.logoConfirmed&&!isHistoricalWeeklyPhoto(image)),date=$('#imageDate').value,workshop=$('#imageWorkshop').value,process=$('#imageProcess').value,source=$('#imageSource').value.toLowerCase(),critical=$('#criticalOnly').checked;
   const options=(values,label)=>`<option value="">${label}</option>`+[...new Set(values.filter(Boolean))].sort().map(v=>`<option>${escapeHTML(v)}</option>`).join('');const oldW=workshop,oldP=process;$('#imageWorkshop').innerHTML=options(all.map(i=>standardWorkshop(i.relatedWorkshop,crosswalkMappings)),'全部车间');$('#imageProcess').innerHTML=options(all.map(i=>i.relatedProcess),'全部工序');$('#imageWorkshop').value=oldW;$('#imageProcess').value=oldP;
   const counts=evidenceStatusCounts(all);for(const button of $$('[data-evidence-status]')){const state=button.dataset.evidenceStatus;button.textContent=state==='all'?'全部':`${state==='unrecognized'?'未识别':'待人工核对'}（${counts[state]}）`;button.setAttribute('aria-pressed',String(state===imageStatusFilter));}
   const filtered=sortImageEvidence(all.filter(i=>(imageStatusFilter==='all'||evidenceStatus(i)===imageStatusFilter)&&(!date||i.relatedDate===date)&&(!workshop||standardWorkshop(i.relatedWorkshop,crosswalkMappings)===standardWorkshop(workshop,crosswalkMappings))&&(!process||i.relatedProcess===process)&&(!source||String(i.sourceFile||'').toLowerCase().includes(source))&&(!critical||i.critical)));$('#imageStorageCount').textContent=`${all.length} 张`;

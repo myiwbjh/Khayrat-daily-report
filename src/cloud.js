@@ -1,7 +1,8 @@
 import {stableId,shipmentIdentityParts} from './project-data.js';
 export async function loadCloudConfig(fetchImpl=fetch){const response=await fetchImpl('/api/config',{headers:{Accept:'application/json'}});if(!response.ok)throw new Error(`云端配置读取失败：${response.status}`);return response.json();}
 const clean=name=>name.replace(/[^a-zA-Z0-9._-]/g,'_');
-export const evidenceUploadEligible=image=>Boolean(image&&!image.ignored&&!image.decorative&&image.logoConfirmed!==true);
+import {isHistoricalWeeklyPhoto} from './evidence-association.js';
+export const evidenceUploadEligible=image=>Boolean(image&&!image.ignored&&!isHistoricalWeeklyPhoto(image)&&!image.decorative&&image.logoConfirmed!==true);
 const fileKey=async name=>{const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(name)));return `${Array.from(hash).map(n=>n.toString(16).padStart(2,'0')).join('')}-${clean(name).slice(-100)}`;};
 export class SupabaseCloudRepository{
   constructor(config,{accessToken='',fetchImpl=fetch,auth=null,userId=''}={}){this.config=config;this.projectId=config.projectId||'khayrat';this.token=accessToken;this.auth=auth;this.userId=userId;this.fetch=(...args)=>Reflect.apply(fetchImpl,globalThis,args);}

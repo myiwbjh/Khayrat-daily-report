@@ -1,6 +1,7 @@
+import {isHistoricalWeeklyPhoto} from './evidence-association.js';
 // Latest-report evidence preview. All photo URLs remain private and are fetched on demand.
 export function latestValidPhotoSelection(images,latestReportDate=''){
-  const eligible=images.filter(image=>image&&!image.ignored&&!image.decorative&&!image.logoConfirmed);
+  const eligible=images.filter(image=>image&&!image.ignored&&!image.decorative&&!image.logoConfirmed&&!isHistoricalWeeklyPhoto(image));
   const date=latestReportDate||[...new Set(eligible.map(image=>image.relatedDate).filter(Boolean))].sort().at(-1)||'';
   return {date,photos:eligible.filter(image=>image.relatedDate===date)};
 }

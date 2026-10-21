@@ -1,3 +1,4 @@
+import {isHistoricalWeeklyPhoto} from './evidence-association.js';
 export const SCENES=['施工中','停工或无明显施工','材料堆放','设备到货','安装准备','已完成区域','无法判断'];
 export const imageUploadTime=image=>String(image.uploadedAt||image.createdAt||image.updatedAt||image.analyzedAt||'');
 export function sortImageEvidence(images){return [...images].sort((left,right)=>{const leftDate=left.relatedDate||'',rightDate=right.relatedDate||'';if(leftDate!==rightDate)return rightDate.localeCompare(leftDate);const stamp=imageUploadTime(right).localeCompare(imageUploadTime(left));return stamp||String(right.imageId).localeCompare(String(left.imageId));});}
@@ -39,7 +40,7 @@ export function findEvidenceConflicts(record,images){
   }return conflicts;
 }
 export function summarizeImageEvidence(images,{date='',workshop='',process=''}={}){
-  const relevant=images.filter(i=>!i.ignored&&(!date||!i.relatedDate||i.relatedDate<=date)&&(!workshop||i.relatedWorkshop===workshop)&&(!process||i.relatedProcess===process));
+  const relevant=images.filter(i=>!i.ignored&&!isHistoricalWeeklyPhoto(i)&&(!date||!i.relatedDate||i.relatedDate<=date)&&(!workshop||i.relatedWorkshop===workshop)&&(!process||i.relatedProcess===process));
   const analyzed=relevant.filter(i=>i.visionEnabled||i.manualReviewed),linked=relevant.filter(i=>i.relatedRecordId||i.relatedRecordKey||i.association?.status?.startsWith('linked'));
   const conflicts=relevant.filter(i=>evidenceReviewState(i).alert);
   const scenes=new Map();for(const image of analyzed){const scene=image.scene||'无法判断';scenes.set(scene,(scenes.get(scene)||0)+1);}
@@ -65,7 +66,7 @@ const normalized=value=>comparableText(value);
 
 // Photo similarity is a review signal only. It never upgrades an image pair to a stoppage finding.
 export function detectSuspectedStagnation(images,records=[],{date='',workshop='',process='',minDays=7,minSimilarity=.78}={}){
-  const eligible=images.filter(image=>!image.ignored&&!image.decorative&&!image.logoConfirmed&&(image.visionEnabled||image.manualReviewed)&&image.relatedDate&&image.relatedWorkshop&&(!date||image.relatedDate<=date)&&(!workshop||normalized(image.relatedWorkshop)===normalized(workshop))&&(!process||normalized(image.relatedProcess)===normalized(process))),candidates=eligible.filter(image=>image.contentSignature||image.visualFingerprint||image.pixelHash);
+  const eligible=images.filter(image=>!image.ignored&&!isHistoricalWeeklyPhoto(image)&&!image.decorative&&!image.logoConfirmed&&(image.visionEnabled||image.manualReviewed)&&image.relatedDate&&image.relatedWorkshop&&(!date||image.relatedDate<=date)&&(!workshop||normalized(image.relatedWorkshop)===normalized(workshop))&&(!process||normalized(image.relatedProcess)===normalized(process))),candidates=eligible.filter(image=>image.contentSignature||image.visualFingerprint||image.pixelHash);
   const groups=new Map();for(const image of candidates){const key=normalized(image.relatedWorkshop);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(image);}
   const items=[];let duplicatesExcluded=0;
   for(const group of groups.values()){

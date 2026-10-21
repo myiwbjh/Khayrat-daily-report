@@ -1,10 +1,11 @@
 import {SCENES} from './image-analysis.js';
+import {isHistoricalWeeklyPhoto} from './evidence-association.js';
 // Shared by member browsing and the allowlisted public projection. No model calls.
 export function hasValidVisualResult(image={}){
   return [image.automaticAnalysis,image.initialAnalysis,image.originalAnalysis,image].some(result=>result&&result.provider!=='text-only'&&(result.visionEnabled===true||result!==image&&image.visionEnabled===true)&&SCENES.includes(result.scene)&&Array.isArray(result.visibleFacts)&&Array.isArray(result.inferences));
 }
 export function evidenceStatus(image={}){
-  if(image.decorative||image.logoConfirmed||image.ignored)return 'excluded';
+  if(image.decorative||image.logoConfirmed||image.ignored||image.historicalEvidence||isHistoricalWeeklyPhoto(image))return 'excluded';
   if(image.association?.status==='published'&&['unrecognized','review','recognized'].includes(image.publicEvidenceStatus))return image.publicEvidenceStatus;
   if(!hasValidVisualResult(image))return 'unrecognized';
   const decision=image.calibration?.decision;
