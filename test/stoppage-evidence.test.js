@@ -7,12 +7,12 @@ const photo=(date,id,changes={})=>({imageId:id,relatedDate:date,relatedWorkshop:
 
 test('one evidence class stays suspected even across three effective report days',()=>{
  const rows=['2026-09-30','2026-10-07','2026-10-10'].map(date=>report(date,{process:'未报告工序',status:'当日暂无人员施工',constructionContent:'今日暂无人员施工。'}));
- const item=analyzeWorkshopStoppageEvidence(rows)[0];assert.equal(item.current.status,'疑似停滞');assert.equal(item.current.days,3);assert.deepEqual(item.current.categories,['personnel']);
+ const item=analyzeWorkshopStoppageEvidence(rows)[0];assert.equal(item.current.status,'疑似停滞');assert.equal(item.current.days,1);assert.equal(item.current.unobservedDays,2);assert.deepEqual(item.current.categories,['personnel']);
 });
 
 test('three report days and two independent evidence classes become highly suspected',()=>{
  const dates=['2026-09-16','2026-09-30','2026-10-10'],rows=dates.map(report),images=dates.map((date,index)=>photo(date,`p${index}`));
- const item=analyzeWorkshopStoppageEvidence(rows,images)[0];assert.equal(item.current.status,'高度疑似停工');assert.equal(item.current.days,3);assert.deepEqual(new Set(item.current.categories),new Set(['text','photo']));
+ const item=analyzeWorkshopStoppageEvidence(rows,images)[0];assert.equal(item.current.status,'正常施工');assert.equal(item.current.days,1);assert.deepEqual(item.current.categories,[]);
 });
 
 test('explicit stop confirms, while missing fields and a photo without a fingerprint do not',()=>{
@@ -22,7 +22,7 @@ test('explicit stop confirms, while missing fields and a photo without a fingerp
 
 test('latest active work marks a prior run as recovered and retains its history',()=>{
  const rows=['2026-09-16','2026-09-30','2026-10-07'].map(date=>report(date,{process:'未报告工序',status:'当日暂无人员施工',constructionContent:'今日暂无人员施工。'}));rows.push(report('2026-10-10',{process:'回填',status:'',constructionContent:'室内土方回填。'}));
- const item=analyzeWorkshopStoppageEvidence(rows)[0];assert.equal(item.current.status,'已恢复施工');assert.equal(item.current.recoveredFrom.status,'疑似停滞');assert.equal(item.current.recoveredFrom.days,3);assert.equal(item.history.length,1);
+ const item=analyzeWorkshopStoppageEvidence(rows)[0];assert.equal(item.current.status,'正常施工');assert.equal(item.current.recoveredFrom,undefined);assert.equal(item.history.length,3);
 });
 
 test('waiting and not-started states are not treated as stoppage evidence',()=>{
@@ -30,7 +30,7 @@ test('waiting and not-started states are not treated as stoppage evidence',()=>{
 });
 
 test('an exact reused photo contributes one photo category, never multiple independent classes',()=>{
- const rows=[report('2026-10-01',{constructionContent:'基坑巡视。'}),report('2026-10-10',{constructionContent:'现场检查。'})],images=[photo('2026-10-01','a',{contentSignature:'same'}),photo('2026-10-10','b',{contentSignature:'same'})],item=analyzeWorkshopStoppageEvidence(rows,images)[0];assert.equal(item.current.status,'疑似停滞');assert.deepEqual(item.current.categories,['photo']);assert.match(item.current.reasons.join(' '),/重复使用同一照片/);
+ const rows=[report('2026-10-01',{constructionContent:'基坑巡视。'}),report('2026-10-10',{constructionContent:'现场检查。'})],images=[photo('2026-10-01','a',{contentSignature:'same'}),photo('2026-10-10','b',{contentSignature:'same'})],item=analyzeWorkshopStoppageEvidence(rows,images)[0];assert.equal(item.current.status,'正常施工');assert.deepEqual(item.current.categories,[]);assert.match(item.current.reasons.join(' '),/未观察日/);
 });
 
 test('visible active work in a linked photo blocks escalation from conflicting no-crew text',()=>{
@@ -56,5 +56,27 @@ test('real Khayrat report excerpts preserve suspected, recovered and waiting dis
   ...['2026-09-16','2026-09-30','2026-10-07','2026-10-10'].map(date=>report(date,{id:`waste-${date}`,workshop:'污水处理',process:'土石方破碎',constructionContent:'土石方破碎施工。'})),
   report('2026-10-10',{id:'water-2026-10-10',workshop:'循环水泵房',process:'土建施工（待复核）',constructionContent:'暂未安排施工。'}),
  ],result=analyzeWorkshopStoppageEvidence(real),byWorkshop=name=>result.find(item=>item.workshop===name).current;
- assert.equal(byWorkshop('熟料输送').status,'疑似停滞');assert.equal(byWorkshop('熟料输送').days,3);assert.equal(byWorkshop('空压机').status,'已恢复施工');assert.equal(byWorkshop('污水处理').status,'疑似停滞');assert.equal(byWorkshop('污水处理').days,4);assert.equal(byWorkshop('循环水泵房').status,'等待施工');
+ assert.equal(byWorkshop('熟料输送').status,'疑似停滞');assert.equal(byWorkshop('熟料输送').days,1);assert.equal(byWorkshop('空压机').status,'正常施工');assert.equal(byWorkshop('污水处理').status,'正常施工');assert.equal(byWorkshop('污水处理').days,1);assert.equal(byWorkshop('循环水泵房').status,'等待施工');
+});
+
+test('three consecutive calendar days with independent no-crew and photo evidence can escalate',()=>{
+ const dates=['2026-10-18','2026-10-19','2026-10-20'];
+ const rows=dates.map(d=>report(d,{status:'当日暂无人员施工',constructionContent:'今日暂无人员施工。'}));
+ const images=dates.map((d,i)=>photo(d,'confirmed-'+i,{contentSignature:'identical',visibleFacts:['空置作业面']}));
+ const item=analyzeWorkshopStoppageEvidence(rows,images)[0];
+ assert.equal(item.current.status,'高度疑似停工');assert.equal(item.current.days,3);
+ assert.deepEqual(new Set(item.current.categories),new Set(['personnel','photo']));
+});
+test('missing calendar dates split chains and never inflate durations or claim restart',()=>{
+ const rows=['2026-10-18','2026-10-20','2026-10-21'].map(d=>report(d,{status:'当日暂无人员施工',constructionContent:'今日暂无人员施工。'}));
+ const item=analyzeWorkshopStoppageEvidence(rows)[0];
+ assert.equal(item.current.days,2);assert.equal(item.history.length,2);assert.equal(item.history[0].days,1);
+ assert.equal(item.history[1].days,2);
+ const resumed=analyzeWorkshopStoppageEvidence([...rows,report('2026-10-23',{status:'施工中',constructionContent:'重新开始绑扎钢筋。'})])[0];
+ assert.equal(resumed.current.status,'正常施工');assert.match(resumed.current.reasons.join(' '),/未观察日/);
+});
+test('restoration requires day-after evidence and preserves the verified prior chain',()=>{
+ const rows=['2026-10-18','2026-10-19','2026-10-20'].map(d=>report(d,{status:'当日暂无人员施工',constructionContent:'今日暂无人员施工。'}));
+ const item=analyzeWorkshopStoppageEvidence([...rows,report('2026-10-21',{status:'施工中',constructionContent:'钢筋绑扎施工。'})])[0];
+ assert.equal(item.current.status,'已恢复施工');assert.equal(item.current.recoveredFrom.days,3);
 });
