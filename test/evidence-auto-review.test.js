@@ -65,7 +65,7 @@ function weekly(){
 test('weekly title aliases corroborate current-period work, never last-week dates or next-week plans',()=>{
   const {image,records}=weekly();
   assert.equal(reviewImageEvidence(image,{records}).status,'passed');
-  assert.equal(reviewImageEvidence({...image,comparisonPeriod:'上周'},{records}).code,'comparison-period');
+  assert.equal(reviewImageEvidence({...image,comparisonPeriod:'上周'},{records}),null); // Historical comparisons are excluded before review.
   assert.equal(reviewImageEvidence({...image,comparisonPeriod:''},{records}).code,'date-uncertain');
   assert.equal(reviewImageEvidence({...image,visibleFacts:['基础混凝土已浇筑'],activities:[]},{records}).code,'visual-insufficient');
   records.pop();assert.equal(reviewImageEvidence(image,{records}).code,'source-insufficient');
