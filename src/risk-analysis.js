@@ -1,4 +1,5 @@
 import {crossAnalyze,currentProgressRows,stableId,summarizeProgressWithWeekly} from './project-data.js';
+import {shipmentIntelligence} from './equipment-intelligence.js';
 
 const text=value=>String(value??'').trim();
 const dateOf=row=>row.periodEnd||row.date||row.month||row.siteArrivalDate||row.arrivalDate||row.eta||'';
@@ -60,6 +61,7 @@ export function analyzeProjectRisks({reports=[],progress=[],shipments=[],mapping
   const latestPhotoDate=images.map(dateOf).sort().at(-1);for(const image of images.filter(item=>dateOf(item)===latestPhotoDate&&/停工|无明显施工|无人作业|闲置/i.test(`${item.scene} ${item.aiSummary} ${(item.visibleFacts||[]).join(' ')}`))){const scope=image.relatedWorkshop||'未关联区域';add({key:`stoppage:${scope}`,category:'施工停滞',scope,title:`${scope}可能停滞`,severity:'medium',factType:'inference',status:'active',sourceDate:dateOf(image),firstSeen:dateOf(image),basis:'最新现场照片可见事实与场景分类',impact:'可能存在资源不足或作业面等待',action:'结合当日日报和连续照片人工确认',evidence:[image.aiSummary||image.scene||'照片显示无明显施工'],sources:[sourceOf(image)]});}
 
   for(const finding of crossAnalyze({reports,progress,shipments,mappings,asOf,projectId}))add({key:`inference:cross:${finding.title}`,category:categoryOf(finding.title),scope:'项目',title:finding.title,severity:finding.severity||'medium',factType:'inference',status:'active',sourceDate:asOf,firstSeen:asOf,basis:finding.basis,impact:'多来源组合显示潜在项目制约',action:finding.confirmation,evidence:finding.facts,sources:[]});
+  for(const risk of shipmentIntelligence({shipments,reports,progress,mappings,asOf}).risks)add({...risk,key:risk.key,category:'设备到货',status:'active',sourceDate:risk.sources.map(source=>source.date).filter(Boolean).sort().at(-1)||asOf,firstSeen:risk.sources.map(source=>source.date).filter(Boolean).sort()[0]||asOf,responsibility:'采购/物流'});
   const items=[...risks.values()].sort((a,b)=>(a.status==='resolved')-(b.status==='resolved')||severityRank[b.severity]-severityRank[a.severity]||String(b.sourceDate).localeCompare(String(a.sourceDate)));
   return {items,counts:{total:items.length,active:items.filter(item=>item.status==='active').length,resolved:items.filter(item=>item.status==='resolved').length,high:items.filter(item=>item.status==='active'&&item.severity==='high').length,medium:items.filter(item=>item.status==='active'&&item.severity==='medium').length,low:items.filter(item=>item.status==='active'&&item.severity==='low').length},asOf};
 }
