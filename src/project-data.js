@@ -37,6 +37,13 @@ export function normalizeShipmentRows(rows,source='unknown',projectId='khayrat')
 
 export const shipmentIdentityParts=row=>[row.shipmentBatch,row.packageLot,row.packageSequence,row.supplier,row.equipmentName];
 
+const shipmentSource=row=>({file:row.sourceFile||'',sheet:row.sourceSheet||'',row:row.sourceRow||null});
+export function mergeShipmentRecords(rows=[]){
+  const merged=new Map();
+  for(const row of rows){const key=row.id||stableId('shipment',shipmentIdentityParts(row),row.projectId||'khayrat'),previous=merged.get(key),sources=[...(previous?.sourceAssociations||[]),...(row.sourceAssociations||[]),shipmentSource(row)].filter(source=>source.file);if(!previous){merged.set(key,{...row,id:key,sourceAssociations:[...new Map(sources.map(source=>[JSON.stringify(source),source])).values()]});continue;}const combined={...previous};for(const [field,value] of Object.entries(row))if(field!=='sourceAssociations'&&value!==''&&value!=null)combined[field]=value;combined.sourceAssociations=[...new Map(sources.map(source=>[JSON.stringify(source),source])).values()];merged.set(key,combined);}
+  return [...merged.values()];
+}
+
 export function summarizeShipments(rows){
   const numeric=(row,field,fallback)=>Number.isFinite(row[field])?row[field]:Number.isFinite(row[fallback])?row[fallback]:null,packages=new Map(),batchTotals=new Map(),categories=new Map();
   for(const row of rows){const key=JSON.stringify([row.shipmentBatch||'',row.packageLot||'',row.packageSequence||row.sourceRow||'']),gross=numeric(row,'grossWeightKg','weight'),volume=numeric(row,'volumeM3'),anomalies=[...(row.anomalies||[])];if(row.packageLot){const duplicateKey=JSON.stringify([row.shipmentBatch||'',row.packageLot]);packages.set(duplicateKey,(packages.get(duplicateKey)||0)+1);}if(!row.packageLot)anomalies.push('件号缺失');if(!row.equipmentName)anomalies.push('设备名称缺失');if(!Number.isFinite(row.quantity)||row.quantity<=0)anomalies.push('数量缺失或无效');if(gross==null)anomalies.push('毛重缺失');if(volume==null)anomalies.push('体积缺失');if(Number.isFinite(row.netWeightKg)&&gross!=null&&gross<row.netWeightKg)anomalies.push('毛重小于净重');row._shipmentKey=key;row._computedAnomalies=[...new Set(anomalies)];const batch=row.shipmentBatch||'未标批次',totals=batchTotals.get(batch)||{batch,packages:0,quantity:0,grossWeightKg:0,volumeM3:0,anomalies:0};totals.packages++;totals.quantity+=Number.isFinite(row.quantity)?row.quantity:0;totals.grossWeightKg+=gross||0;totals.volumeM3+=volume||0;totals.anomalies+=row._computedAnomalies.length?1:0;batchTotals.set(batch,totals);categories.set(row.category||'未分类',(categories.get(row.category||'未分类')||0)+1);}

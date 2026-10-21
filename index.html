@@ -166,8 +166,9 @@
         <section class="shipment-kpis" aria-label="设备物流统计">
           <article><span>包装记录</span><b id="shipmentPackageKpi">0</b><small>按箱单主表逐件建账</small></article>
           <article><span>总毛重</span><b id="shipmentWeightKpi">0 t</b><small>仅汇总原箱单毛重</small></article>
-          <article><span>总体积</span><b id="shipmentVolumeKpi">0 m³</b><small>仅汇总原箱单体积</small></article>
-          <article class="alert-kpi"><span>待复核记录</span><b id="shipmentAnomalyKpi">0</b><small>缺件号、数量、重量、体积或重复件号</small></article>
+          <article><span>已关联设备</span><b id="shipmentMappedKpi">0</b><small>名称或已确认映射可追溯</small></article>
+          <article class="alert-kpi"><span>待确认关联</span><b id="shipmentPendingKpi">0</b><small>不依据泛化类别猜测用途</small></article>
+          <article class="alert-kpi"><span>物流施工风险</span><b id="shipmentRiskKpi">0</b><small>含冲突、潜在风险与信息不足</small></article>
         </section>
         <article class="panel"><div class="panel-title"><div><h2>批次到场与施工衔接</h2><p>按批次维护 ETA、清关、到场、安装区域及 WBS / 车间责任关系；箱单原始字段保持不变。</p></div><span id="equipmentControlCount" class="count">0 个批次</span></div><div id="equipmentBatchControls" class="control-register"></div></article>
         <article class="panel shipment-ledger">

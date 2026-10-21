@@ -2,6 +2,7 @@ const clean=value=>String(value||'').normalize('NFKC').replace(/[\s　]+/g,'').t
 
 export const BUILTIN_WORKSHOP_ALIASES=Object.freeze([
   {alias:'空压机房',canonical:'空压机',source:'系统确认规则',note:'业主确认同义名称'},
+  {alias:'空压机站',canonical:'空压机',source:'系统确认规则',note:'日报/周报同一设施名称'},
   {alias:'水泥粉磨车间',canonical:'水泥磨',source:'系统确认规则',note:'业主确认同义名称'},
   {alias:'水泥磨车间',canonical:'水泥磨',source:'系统确认规则',note:'历史确定别名'},
   {alias:'水泥粉磨',canonical:'水泥磨',source:'系统确认规则',note:'历史确定别名'},
