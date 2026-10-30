@@ -49,11 +49,11 @@ export class SupabaseCloudRepository{
     const row={id:control.id,project_id:this.projectId,batch_name:control.batchName,shipping_date:control.shippingDate||null,eta:control.eta||null,arrival_date:control.arrivalDate||null,site_arrival_date:control.siteArrivalDate||null,customs_status:control.customsStatus||null,status:control.status||'planned',installation_area:control.installationArea||null,linked_wbs:control.linkedWbs||[],linked_workshops:control.linkedWorkshops||[],responsible:control.responsible||null,due_date:control.dueDate||null,note:control.note||null,history:control.history||[],updated_at:new Date().toISOString()};
     await this.request('/rest/v1/equipment_batch_controls?on_conflict=id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify(row)});return control;
   }
-  async saveRiskAction(action){
+  async saveRiskAction(action,{onlyIfNew=false}={}){
     if(action.projectId&&action.projectId!==this.projectId)throw new Error('跨项目数据拒绝保存');
     if(!action.id)throw new Error('风险闭环缺少稳定 ID');
     const row={id:action.id,project_id:this.projectId,source_key:action.sourceKey||null,title:action.title||null,category:action.category||null,scope:action.scope||null,owner:action.owner||null,due_date:action.dueDate||null,status:action.status||'open',response:action.response||null,closure_note:action.closureNote||null,history:action.history||[],closed_at:action.status==='closed'?(action.closedAt||new Date().toISOString()):null,updated_at:new Date().toISOString()};
-    await this.request('/rest/v1/risk_actions?on_conflict=id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify(row)});return action;
+    await this.request('/rest/v1/risk_actions?on_conflict=id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:onlyIfNew?'resolution=ignore-duplicates':'resolution=merge-duplicates'},body:JSON.stringify(row)});return action;
   }
   async findProgressBatch(fileHash){const response=await this.request(`/rest/v1/progress_import_batches?project_id=eq.${encodeURIComponent(this.projectId)}&file_hash=eq.${encodeURIComponent(fileHash)}&select=id,source_file,original_object_path,imported_at,import_status,current_version&limit=1`);return (await response.json())[0]||null;}
   async saveProgressWorkbook(file,parsed){

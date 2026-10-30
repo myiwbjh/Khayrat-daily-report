@@ -11,8 +11,32 @@ function excelDate(value){const n=finite(value);if(n==null)return '';return new 
 function parseSheet(xml,shared){const rows=[];for(const match of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)){const rowIndex=Number(/\br="(\d+)"/.exec(match[1])?.[1]||rows.length+1)-1,values=[],rowBody=match[2].replace(/<c\b[^>]*\/>/g,'');for(const cell of rowBody.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)){const attrs=cell[1],body=cell[2],ref=/\br="([A-Z]+\d+)"/.exec(attrs)?.[1]||'A1',type=/\bt="([^"]+)"/.exec(attrs)?.[1],raw=/<v[^>]*>([\s\S]*?)<\/v>/.exec(body)?.[1]??/<t[^>]*>([\s\S]*?)<\/t>/.exec(body)?.[1]??'';values[column(ref)]=type==='s'?shared[Number(raw)]??'':decodeXML(raw);}rows[rowIndex]=values;}return rows;}
 function workbookSheets(files){const sharedRaw=files.get('xl/sharedStrings.xml'),shared=sharedRaw?entries(decoder.decode(sharedRaw),'si').map(decodeXML):[],workbook=files.get('xl/workbook.xml'),relations=files.get('xl/_rels/workbook.xml.rels');if(!workbook||!relations){const first=files.get('xl/worksheets/sheet1.xml');return first?[{name:'Sheet1',rows:parseSheet(decoder.decode(first),shared)}]:[];}const rels=new Map([...decoder.decode(relations).matchAll(/<Relationship\b([^>]*)\/?\s*>/g)].map(m=>[/\bId="([^"]+)"/.exec(m[1])?.[1],/\bTarget="([^"]+)"/.exec(m[1])?.[1]]));return [...decoder.decode(workbook).matchAll(/<sheet\b([^>]*)\/?\s*>/g)].map(match=>{const attrs=match[1],name=decodeXML(/\bname="([^"]+)"/.exec(attrs)?.[1]||''),id=/\br:id="([^"]+)"/.exec(attrs)?.[1],target=rels.get(id)||'',path=target.startsWith('/')?target.slice(1):`xl/${target}`;return {name,rows:files.has(path)?parseSheet(decoder.decode(files.get(path)),shared):[]};});}
 
-export async function parseXLSXWorkbook(buffer){return {sheets:workbookSheets(await unzip(buffer))};}
-export async function parseXLSX(buffer){const {sheets}=await parseXLSXWorkbook(buffer),rows=sheets[0]?.rows||[];if(!rows.length)return[];const [header,...body]=rows,headers=(header||[]).map(String);return body.filter(Boolean).filter(row=>row.some(value=>value!==''&&value!=null)).map(row=>Object.fromEntries(headers.map((name,index)=>[name,row[index]??''])));}
+export async function parseXLSXWorkbook(buffer){
+  if(new Uint8Array(buffer)[0]===0xd0){
+    const lib=typeof window==='undefined'?await import('xlsx'):await import('../vendor/xlsx.mjs');
+    const codepage=typeof window==='undefined'?await import('xlsx/dist/cpexcel.full.mjs'):await import('../vendor/cpexcel.full.mjs');
+    lib.set_cptable(codepage);
+    const book=lib.read(buffer,{type:'array'});
+    return {sheets:book.SheetNames.map(name=>({name,rows:lib.utils.sheet_to_json(book.Sheets[name],{header:1,defval:'',raw:true})}))};
+  }
+  return {sheets:workbookSheets(await unzip(buffer))};
+}
+export async function parseXLSX(buffer){
+  const {sheets}=await parseXLSXWorkbook(buffer),result=[];
+  for(const sheet of sheets){
+    if(/说明|示例|样例|模板|instruction|example|sample|readme/i.test(sheet.name))continue;
+    const headerIndex=sheet.rows.findIndex(row=>row?.filter(v=>text(v)).length>=2&&row.some(v=>/日期|date|车间|workshop|设备名称|package|箱号|WBS|来源类型/i.test(text(v))));
+    if(headerIndex<0)continue;
+    const headers=sheet.rows[headerIndex].map(text);
+    for(let i=headerIndex+1;i<sheet.rows.length;i++){
+      const row=sheet.rows[i];if(!row?.some(v=>text(v)))continue;
+      if(row.some(v=>/^(合计|总计|total|grand total)$/i.test(text(v))))continue;
+      if(headers.every((h,j)=>!h||text(row[j])===h))continue;
+      result.push({...Object.fromEntries(headers.filter(Boolean).map(h=>[h,row[headers.indexOf(h)]??''])),__sourceSheet:sheet.name,__sourceRow:i+1});
+    }
+  }
+  return result;
+}
 export async function sha256Hex(buffer){const digest=await crypto.subtle.digest('SHA-256',buffer);return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');}
 
 const planVersion=name=>{const match=/工程量计划\s*[（(]?\s*V\s*(\d+)\s*[)）]?/i.exec(name);return match?Number(match[1]):null;};

@@ -10,3 +10,6 @@ for(const file of ['pdf.mjs','pdf.worker.mjs'])await cp(`node_modules/pdfjs-dist
 for(const folder of ['cmaps','standard_fonts','wasm'])await cp(`node_modules/pdfjs-dist/${folder}`,`dist/vendor/${folder}`,{recursive:true});
 console.log('Built static application in dist/');
 
+
+await cp('node_modules/xlsx/xlsx.mjs','dist/vendor/xlsx.mjs');
+await cp('node_modules/xlsx/dist/cpexcel.full.mjs','dist/vendor/cpexcel.full.mjs');

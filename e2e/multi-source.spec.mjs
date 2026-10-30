@@ -1,3 +1,4 @@
+import XLSX from 'xlsx';
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 const users=[1,2].map(n=>({id:`00000000-0000-4000-8000-00000000000${n}`,aud:'authenticated',role:'authenticated',email:`qa${n}@example.test`,email_confirmed_at:'2026-10-01T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}}));
@@ -42,7 +43,7 @@ test('equipment intelligence exposes civil readiness and jumps to matching risk 
 test('equipment batch control and risk action flow persist through authenticated APIs',async({page})=>{
  const state=await sandbox(page);state.tables.daily_reports=[{id:'risk-source',project_id:'khayrat',payload:{id:'risk-source',date:'2026-10-10',workshop:'磨房',process:'设备安装',constructionContent:'等待设备',risk:'主机设备到货延误，影响安装',sourceFile:'daily.pdf'}}];await login(page);
  await csv(page,'#shipmentInput','shipping.csv','设备类别,设备名称,Package/Lot,发运批次,数量,单位,当前状态\nMill,磨机,PKG-1,B01,1,件,运输中','#shipmentCount');await page.getByRole('link',{name:'设备跟踪'}).click();const card=page.locator('#equipmentBatchControls details').first();await card.locator('summary').click();const control=card.locator('[data-equipment-control]');await expect(control).toBeVisible();await control.locator('[name="status"]').selectOption('ready');await control.locator('[name="eta"]').fill('2026-10-20');await control.locator('[name="arrivalDate"]').fill('2026-10-21');await control.locator('[name="siteArrivalDate"]').fill('2026-10-22');await control.locator('[name="customsStatus"]').fill('已放行');await control.locator('[name="installationArea"]').fill('磨房');await control.locator('[name="linkedWbs"]').fill('CIV-01');await control.locator('[name="responsible"]').fill('物流经理');await control.locator('button[type="submit"]').click();await expect(page.locator('#toast')).toContainText('批次协同状态已保存');expect(state.tables.equipment_batch_controls).toHaveLength(1);
- await page.getByRole('link',{name:'风险与制约'}).click();const riskCard=page.locator('#riskRows details.risk-card').first();await riskCard.locator('summary').first().click();const risk=riskCard.locator('[data-risk-action]');await expect(risk).toBeVisible();await risk.locator('[name="owner"]').fill('项目经理');await risk.locator('[name="dueDate"]').fill('2026-10-20');await risk.locator('[name="status"]').selectOption('closed');await risk.locator('[name="response"]').fill('完成催运并复核到场');await risk.locator('[name="closureNote"]').fill('到场验收记录已确认');await risk.locator('button[type="submit"]').click();await expect(page.locator('#toast')).toContainText('风险责任与闭环状态已保存');expect(state.tables.risk_actions).toHaveLength(1);expect(state.tables.risk_actions[0].status).toBe('closed');
+ await page.getByRole('link',{name:'风险与制约'}).click();const riskCard=page.locator('#riskRows details.risk-card').first();await riskCard.locator('summary').first().click();const risk=riskCard.locator('[data-risk-action]');await expect(risk).toBeVisible();await risk.locator('[name="owner"]').fill('项目经理');await risk.locator('[name="dueDate"]').fill('2026-10-20');await risk.locator('[name="status"]').selectOption('closed');await risk.locator('[name="response"]').fill('完成催运并复核到场');await risk.locator('[name="closureNote"]').fill('到场验收记录已确认');await risk.locator('button[type="submit"]').click();await expect(page.locator('#toast')).toContainText('风险责任与闭环状态已保存');expect(state.tables.risk_actions.some(row=>row.status==='closed'&&row.owner==='项目经理')).toBe(true);
 });
 test('logout and another account never expose prior cache; signing back in restores the original scope',async({page})=>{
  const state=await sandbox(page);await login(page);await csv(page,'#progressInput','wbs.csv',progress,'#progressCount');await page.locator('#signOutButton').click();await expect(page.locator('#progressCount')).toHaveText('0 条');await login(page,users[1]);await expect(page.locator('#progressCount')).toHaveText('0 条');await page.reload();await expect(page.locator('#progressCount')).toHaveText('0 条');await page.locator('#signOutButton').click();await login(page,users[0]);await expect(page.locator('#progressCount')).toHaveText('4 条');expect(state.tables.progress_measurements).toHaveLength(4);
@@ -84,3 +85,39 @@ test('an importing batch resumes after audit failure and does not duplicate WBS 
  await page.locator('#progressInput').setInputFiles(file);await expect(page.locator('#progressCount')).toHaveText('19 个 WBS · 1 个快照');expect(state.tables.progress_import_batches).toHaveLength(1);expect(state.tables.progress_import_batches[0].import_status).toBe('complete');expect(state.tables.progress_import_batches[0].current_version).toBe(true);expect(state.tables.progress_measurements).toHaveLength(532);expect(new Set(state.tables.progress_measurements.map(row=>row.id)).size).toBe(532);expect(state.tables.import_audits).toHaveLength(1);expect(state.tables.import_audits[0].result.progressBatchId).toBe(state.tables.progress_import_batches[0].id);
 });
 
+
+test('phase one: package arrival stays partial and manual checks survive reimport',async({page})=>{
+ const state=await sandbox(page);await login(page);
+ const content='设备类别,设备名称,Package/Lot,发运批次,数量,单位\nMill,水泥磨,PKG-1,B01,1,件\nMill,电机,PKG-2,B01,1,件';
+ await csv(page,'#shipmentInput','partial.csv',content,'#shipmentCount');
+ await page.getByRole('link',{name:'设备跟踪'}).click();
+ const form=page.locator('#packageControlForm');await form.locator('[name="siteArrivalDate"]').fill('2026-10-27');
+ await form.locator('[name="foundationHandover"]').fill('基础移交单 F-1');await form.locator('button').click();
+ await expect(page.locator('#toast')).toContainText('已保存该箱件');
+ expect(state.tables.equipment_shipments.filter(r=>r.payload.manualControl?.siteArrivalDate)).toHaveLength(1);
+ const second=await form.locator('select option').nth(1).getAttribute('value');await form.locator('select').selectOption(second);
+ await expect(form.locator('[name="siteArrivalDate"]')).toHaveValue('');await expect(form).toContainText('安装条件待确认');
+ await csv(page,'#shipmentInput','partial.csv',content,'#shipmentCount');
+ expect(state.tables.equipment_shipments).toHaveLength(2);
+ expect(state.tables.equipment_shipments.some(r=>r.payload.manualControl?.installationChecks.foundationHandover.evidence==='基础移交单 F-1')).toBe(true);
+});
+
+test('phase one: weekly task postponement and history survive a later week without the source',async({page})=>{
+ const state=await sandbox(page);state.tables.daily_reports=[{id:'week',project_id:'khayrat',payload:{date:'2026-10-20',workshop:'水泥磨',process:'周计划',nextWeekPlan:'安装电机',sourceFile:'第20期.pptx'}}];await login(page);
+ await page.getByRole('link',{name:'风险与制约'}).click();
+ const card=page.locator('.risk-card').filter({hasText:'安装电机'}).first();await card.locator('summary').first().click();const form=card.locator('form');
+ await form.locator('[name="owner"]').fill('安装负责人');await form.locator('[name="dueDate"]').fill('2026-10-22');await form.locator('button').click();
+ await expect(page.locator('#toast')).toContainText('风险责任与闭环状态已保存');await card.locator('summary').first().click();
+ await form.locator('[name="dueDate"]').fill('2026-11-02');await form.locator('button').click();await expect(card).toContainText('曾逾期');
+ state.tables.daily_reports=[];await page.reload();await page.getByRole('link',{name:'风险与制约'}).click();
+ await expect(card).toContainText('安装负责人');await card.locator('summary').first().click();await expect(card).toContainText('原承诺日期：2026-10-22');await expect(card).toContainText('第20期.pptx');
+});
+
+test('phase one: binary XLS native packing import chooses master and repeats without writes',async({page})=>{
+ const state=await sandbox(page);await login(page);const book=XLSX.utils.book_new(),rows=[['项目名称','','测试','','运输批次','B01'],['总件数','',2],['序号','供货厂家','外包装编号.','货物名称','部件名称','装箱明细','规格型号','数量'],[1,'供应商','P1','电机','','','',1],[2,'供应商','P2','电机','','','',1]];
+ for(const name of ['制表说明','中文总装箱单','英文总装箱单','中文明细装箱单'])XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(rows),name);
+ const file={name:'B01.xls',mimeType:'application/vnd.ms-excel',buffer:XLSX.write(book,{bookType:'biff8',type:'buffer'})};
+ await page.locator('#shipmentInput').setInputFiles(file);await expect.poll(()=>state.tables.equipment_shipments.length).toBe(2);await expect(page.locator('#toast')).toContainText('新增 2');
+ const writes=state.tables.import_audits.length;await page.locator('#shipmentInput').setInputFiles(file);await expect(page.locator('#toast')).toContainText('无新增或变化');expect(state.tables.equipment_shipments).toHaveLength(2);expect(state.tables.import_audits.length).toBe(writes);
+ await page.getByRole('link',{name:'设备跟踪'}).click();await page.screenshot({path:'test-results/phase-one-equipment.png',fullPage:true});
+});

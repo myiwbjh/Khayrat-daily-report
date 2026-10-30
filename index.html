@@ -70,6 +70,7 @@
         <button id="templateButton" class="text-button">下载标准 CSV 模板 →</button>
       </section>
 
+      <section id="phaseOnePriorities" class="panel"></section>
       <div id="dashboard" hidden>
         <section class="kpis">
           <div id="progressDecisionGate" class="decision-gate" role="status"></div>
@@ -170,7 +171,7 @@
           <article class="alert-kpi"><span>待确认关联</span><b id="shipmentPendingKpi">0</b><small>不依据泛化类别猜测用途</small></article>
           <article class="alert-kpi"><span>物流施工风险</span><b id="shipmentRiskKpi">0</b><small>含冲突、潜在风险与信息不足</small></article>
         </section>
-        <article class="panel"><div class="panel-title"><div><h2>批次到场与施工衔接</h2><p>按批次维护 ETA、清关、到场、安装区域及 WBS / 车间责任关系；箱单原始字段保持不变。</p></div><span id="equipmentControlCount" class="count">0 个批次</span></div><div id="equipmentBatchControls" class="control-register"></div></article>
+        <article class="panel"><div class="panel-title"><div><h2>批次到场与施工衔接</h2><p>按批次维护 ETA、清关、到场、安装区域及 WBS / 车间责任关系；箱单原始字段保持不变。</p></div><span id="equipmentControlCount" class="count">0 个批次</span></div><div id="packageControl"></div><div id="equipmentBatchControls" class="control-register"></div></article>
         <article class="panel shipment-ledger">
           <div class="shipment-filter-bar">
             <label>批次<select id="shipmentBatchFilter"><option value="">全部批次</option></select></label>
@@ -193,7 +194,7 @@
       <section class="import-panel" id="import">
         <div><span class="import-icon">⇧</span><div><h2>数据录入</h2><p>日报支持 CSV / XLSX / PDF；工程周报支持 PPTX。原始文件、页码、原生文字、表格、备注和施工照片均保留来源。</p></div></div>
         <div class="import-actions"><label class="ocr-consent"><input id="ocrConsent" type="checkbox"> 授权扫描页发送至 OCR（扫描版 PDF 才需要）</label><label class="ocr-consent"><input id="analyzeAfterImport" type="checkbox"> <span id="analyzeAfterImportText">视觉分析配置检查中</span></label><button class="primary import-trigger">选择文件</button><button id="folderImportButton" class="outline">选择 PDF 文件夹</button></div>
-        <input id="fileInput" type="file" accept=".csv,.xlsx,.pdf,.pptx,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple hidden>
+        <input id="fileInput" type="file" accept=".csv,.xls,.xlsx,.pdf,.pptx,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple hidden>
         <input id="folderInput" type="file" accept=".pdf,application/pdf" webkitdirectory directory multiple hidden>
         <div id="importLog" class="import-log" aria-live="polite"></div>
       </section>
@@ -201,9 +202,9 @@
         <div class="panel-title"><div><h2>多类数据源与交叉分析</h2><p>日报、WBS 进度、设备物流分别保存，通过 Crosswalk 多对多关联。</p></div></div>
         <div class="data-source-grid">
           <article><h3>工程周报（PPTX）</h3><p>识别期号、周区间、原生文字/表格/备注、车间照片及上周/本周对比；周报仅补充核验。</p><button id="weeklyImportButton" class="primary">上传工程周报</button><input id="weeklyInput" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden><b id="weeklyCount">0 期</b></article>
-          <article><h3>进度 / 工程量</h3><p>直接读取项目现有 Excel，识别当前计划、历史计划、WBS、工程量和月度实绩。</p><button id="progressImportButton" class="primary">上传工程量 Excel</button><input id="progressInput" type="file" accept=".csv,.xlsx" hidden><b id="progressCount">0 条</b></article>
-          <article><h3>设备 / 发货</h3><p>设备类别 → Package/Lot → 发运批次 → 设备。</p><button id="shipmentImportButton" class="primary">导入设备物流</button><button data-template="shipments" class="outline">下载模板</button><input id="shipmentInput" type="file" accept=".csv,.xlsx" hidden><b id="shipmentCount">0 条</b></article>
-          <article><h3>Crosswalk / Mapping</h3><p>连接日报车间/工序、WBS、设备类别和安装区域。</p><button id="mappingImportButton" class="primary">导入映射</button><button data-template="mappings" class="outline">下载模板</button><input id="mappingInput" type="file" accept=".csv,.xlsx" hidden><b id="mappingCount">0 条</b></article>
+          <article><h3>进度 / 工程量</h3><p>直接读取项目现有 Excel，识别当前计划、历史计划、WBS、工程量和月度实绩。</p><button id="progressImportButton" class="primary">上传工程量 Excel</button><input id="progressInput" type="file" accept=".csv,.xls,.xlsx" hidden><b id="progressCount">0 条</b></article>
+          <article><h3>设备 / 发货</h3><p>设备类别 → Package/Lot → 发运批次 → 设备。</p><button id="shipmentImportButton" class="primary">导入设备物流</button><button data-template="shipments" class="outline">下载模板</button><input id="shipmentInput" type="file" accept=".csv,.xls,.xlsx" hidden><b id="shipmentCount">0 条</b></article>
+          <article><h3>Crosswalk / Mapping</h3><p>连接日报车间/工序、WBS、设备类别和安装区域。</p><button id="mappingImportButton" class="primary">导入映射</button><button data-template="mappings" class="outline">下载模板</button><input id="mappingInput" type="file" accept=".csv,.xls,.xlsx" hidden><b id="mappingCount">0 条</b></article>
         </div>
         <section class="workshop-alias-panel">
           <div class="panel-title"><div><h3>车间名称映射</h3><p>只统一逻辑关联；日报、周报、照片和 WBS 原始名称保持不变。</p></div><span id="workshopAliasSummary" class="count">0 条已合并</span></div>
