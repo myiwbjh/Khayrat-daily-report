@@ -1,6 +1,7 @@
 import XLSX from 'xlsx';
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
+import {b01PackingFixture} from '../test/fixtures/b01-packaging.mjs';
 const users=[1,2].map(n=>({id:`00000000-0000-4000-8000-00000000000${n}`,aud:'authenticated',role:'authenticated',email:`qa${n}@example.test`,email_confirmed_at:'2026-10-01T00:00:00Z',app_metadata:{provider:'email'},user_metadata:{}}));
 function session(user){const exp=Math.floor(Date.now()/1000)+3600;return {user,access_token:[Buffer.from('{"alg":"HS256"}').toString('base64url'),Buffer.from(JSON.stringify({sub:user.id,exp})).toString('base64url'),'mock-only'].join('.'),refresh_token:'synthetic-only',expires_in:3600,expires_at:exp,token_type:'bearer'};}
 async function sandbox(page){
@@ -122,4 +123,36 @@ test('phase one: binary XLS native packing import chooses master and repeats wit
  await page.locator('#shipmentInput').setInputFiles(file);await expect.poll(()=>state.tables.equipment_shipments.length).toBe(2);await expect(page.locator('#toast')).toContainText('新增 2');
  expect(state.tables.equipment_shipments[0].payload.detailSources.length).toBeGreaterThan(0);const writes=state.tables.import_audits.length;await page.locator('#shipmentInput').setInputFiles(file);await expect(page.locator('#toast')).toContainText('无新增或变化');expect(state.tables.equipment_shipments).toHaveLength(2);expect(state.tables.import_audits.length).toBe(writes);
  await page.getByRole('link',{name:'设备跟踪'}).click();await page.screenshot({path:'test-results/phase-one-equipment.png',fullPage:true});
+});
+
+test('B01 keeps 49 records, counts 46 outer packages pending confirmation and preserves three same-number packages',async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const state=await sandbox(page);await login(page);
+ const {master,detail}=b01PackingFixture(),book=XLSX.utils.book_new();
+ for(const [name,data] of [['中文总装箱单',master],['英文总装箱单',master],['中文明细装箱单',detail]])XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(data),name);
+ const file={name:'B01-20260716.xls',mimeType:'application/vnd.ms-excel',buffer:XLSX.write(book,{bookType:'biff8',type:'buffer'})};
+ await page.locator('#shipmentInput').setInputFiles(file);await expect.poll(()=>state.tables.equipment_shipments.length).toBe(49);
+ await expect(page.locator('#toast')).toContainText('新增 49');
+ await page.getByRole('link',{name:'设备跟踪'}).click();
+ await expect(page.locator('#shipmentPackageKpi')).toHaveText('46');
+ await expect(page.locator('#shipmentPackagingBasis')).toContainText('49 条原始记录 · 3 条箱内设备不重复计件 · B01 外包装待确认');
+ await expect(page.locator('.shipment-batch>summary')).toContainText('46 件外包装（待确认）');
+ await expect(page.locator('.shipment-equipment')).toHaveCount(49);
+ await expect(page.locator('.shipment-equipment>summary').filter({hasText:'箱内设备'})).toHaveCount(3);
+ await expect(page.locator('.shipment-equipment>summary').filter({hasText:'HBYH-1/3'})).toHaveCount(3);
+ const cutter=state.tables.equipment_shipments.find(r=>r.payload.packageSequence==='48');
+ expect(cutter.payload.rawSource.row).toBe(52);expect(cutter.payload.detailSources[0].row).toBe(97);
+ const writes=state.mutations.filter(path=>!path.endsWith('/risk_actions'));
+ await page.locator('#shipmentInput').setInputFiles(file);await expect(page.locator('#toast')).toContainText('无新增或变化');
+ expect(state.mutations.filter(path=>!path.endsWith('/risk_actions'))).toEqual(writes);
+ // Simulate pre-change persisted records: derived classification must not require a reimport/write.
+ for(const r of state.tables.equipment_shipments){delete r.payload.packaging;delete r.payload.rawSource;r.payload.manualControl={siteArrivalDate:'2026-10-21'};r.payload.manualHistory=[{note:'人工确认保留'}];}
+ const before=JSON.stringify(state.tables.equipment_shipments);
+ await page.reload();await expect(page.locator('#shipmentPackageKpi')).toHaveText('46');
+ expect(JSON.stringify(state.tables.equipment_shipments)).toBe(before);
+ expect(state.mutations.filter(path=>!path.endsWith('/risk_actions'))).toEqual(writes);
+ await page.locator('#shipmentKeywordFilter').fill('HBYH');await expect(page.locator('#shipmentFilterCount')).toHaveText('3 / 49 条');
+ await page.locator('#shipmentKeywordFilter').fill('');
+ await page.screenshot({path:'test-results/b01-packaging-equipment.png',fullPage:true});
+ expect(errors).toEqual([]);
 });
