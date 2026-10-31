@@ -18,7 +18,7 @@ function number(value){if(value===''||value==null)return null;const n=Number(Str
 function validDate(value){if(value instanceof Date&&!isNaN(value))return value.toISOString().slice(0,10);if(Number(value)>20000&&Number(value)<100000){const d=new Date(Date.UTC(1899,11,30)+Number(value)*86400000);return d.toISOString().slice(0,10);}const text=String(value??'').trim().replace(/[./]/g,'-');const d=new Date(text);return !text||isNaN(d)?'':d.toISOString().slice(0,10);}
 
 export function normalizeRows(rows, source='unknown', { allowIncomplete = false } = {}) {
-  return rows.map((row,index)=>{const lower=Object.fromEntries(Object.entries(row).map(([k,v])=>[k.trim().toLowerCase(),v]));const out={source,sourceRow:index+2,rawValues:{}};
+  return rows.map((row,index)=>{const lower=Object.fromEntries(Object.entries(row).map(([k,v])=>[k.trim().toLowerCase(),v]));const out={source,sourceRow:row.__sourceRow||index+2,sourceSheet:row.__sourceSheet||'',rawValues:{}};
     for(const field of FIELDS){const alias=ALIASES[field].find(a=>Object.hasOwn(lower,a.toLowerCase()));let value=alias?lower[alias.toLowerCase()]:'';if(numericFields.has(field)||field==='date')out.rawValues[field]=String(value??'');out[field]=numericFields.has(field)?number(value):String(value??'').trim();}
     out.date=parseReportDate(row['日期']??row.date??out.date);if(!out.reportName)out.reportName=source;return withProvenance(out);
   }).filter(r=>(allowIncomplete||r.date) && (r.workshop||r.equipmentName||r.rawRecord||r.constructionContent));

@@ -31,7 +31,9 @@ export function equipmentAssociation(row,mappings=[]){
 
 export function shipmentLifecycle(row,asOf=new Date().toISOString().slice(0,10)){
   const value=compact(`${row.status||''} ${row.customsStatus||''}`),site=row.siteArrivalDate||'',eta=row.eta||row.arrivalDate||'';
-  if(site||/现场到货|已到场|delivered|^site$|^ready$/.test(value))return {state:'arrived',label:'已到场',date:site||row.arrivalDate||''};
+  if(site||/现场到货|已到场|delivered|^site$/.test(value))return {state:'arrived',label:'已到场',date:site||row.arrivalDate||''};
+  if(row.arrivalDate)return {state:'approaching',label:'实际到港，现场到货待确认',date:row.arrivalDate};
+  if(row.expectedSiteDate)return {state:'approaching',label:`预计 ${row.expectedSiteDate} 到场`,date:row.expectedSiteDate};
   if(/已发运|运输中|在途|到港|清关|shipped|transit|shipping|port|customs/.test(value))return {state:'approaching',label:text(row.status||row.customsStatus)||'运输中',date:eta||row.shippingDate||''};
   if(eta){const days=Math.ceil((new Date(`${eta}T00:00:00Z`)-new Date(`${asOf}T00:00:00Z`))/86400000);if(days<=30)return {state:'approaching',label:`预计 ${eta} 到港`,date:eta};return {state:'planned',label:`ETA ${eta}`,date:eta};}
   return {state:'unknown',label:'运输节点未提供',date:''};
@@ -42,7 +44,7 @@ export function civilReadiness(association,reports=[],asOf=new Date().toISOStrin
   const workshop=standardWorkshop(association.workshop,mappings),matches=reports.filter(row=>dateOf(row)&&dateOf(row)<=asOf&&standardWorkshop(row.workshop,mappings)===workshop).sort((a,b)=>dateOf(a).localeCompare(dateOf(b))),latest=matches.at(-1);
   if(!latest)return {state:'unknown',label:'无施工证据',date:'',evidence:'未找到同车间日报/周报',source:null};
   const value=text(`${latest.status||''} ${latest.constructionContent||''} ${latest.rawRecord||''}`),ready=/基础.*(?:完成|验收)|预埋件.*(?:完成|验收)|安装面.*(?:移交|完成)|具备.*安装条件/.test(value),active=/基础|土方|钢筋|模板|混凝土|承台|结构|梁|柱|楼板|脚手架|施工中|进行中/.test(value);
-  return {state:ready?'ready':active?'not-ready':'unknown',label:ready?'具备安装条件':active?'土建尚在施工':'准备状态不明确',date:dateOf(latest),evidence:value.slice(0,220)||'来源未提供施工内容',source:sourceOf(latest)};
+  return {state:ready?'unknown':active?'not-ready':'unknown',label:ready?'基础完成描述 · 安装条件待确认':active?'土建尚在施工':'准备状态不明确',date:dateOf(latest),evidence:value.slice(0,220)||'来源未提供施工内容',source:sourceOf(latest)};
 }
 
 export function shipmentIntelligence({shipments=[],reports=[],mappings=[],asOf=new Date().toISOString().slice(0,10)}={}){

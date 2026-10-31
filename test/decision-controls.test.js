@@ -19,7 +19,7 @@ test('equipment batch readiness requires lifecycle fields, construction links an
 test('risk actions persist ownership, overdue state and evidence-backed closure',()=>{
  const base={id:'risk-1',severity:'high',status:'active'},open=mergeRiskActions([base],[{id:'risk-1',owner:'项目经理',dueDate:'2026-10-10',status:'monitoring'}],'2026-10-14');assert.equal(open.items[0].overdue,true);assert.equal(open.counts.high,1);
  const closed=mergeRiskActions([base],[{id:'risk-1',owner:'项目经理',status:'closed',closureNote:'已验收'}],'2026-10-14');assert.equal(closed.items[0].status,'resolved');assert.equal(closed.counts.resolved,1);
- assert.equal(mergeRiskActions([{...base,status:'resolved'}],[],'2026-10-14').items[0].status,'resolved');
+ assert.equal(mergeRiskActions([{...base,status:'resolved'}],[],'2026-10-14').items[0].status,'active');
 });
 
 test('decision-control migration lets members read, editors write and readers cannot mutate',async()=>{const db=new PGlite(),editor='00000000-0000-4000-8000-000000000001',reader='00000000-0000-4000-8000-000000000002';try{

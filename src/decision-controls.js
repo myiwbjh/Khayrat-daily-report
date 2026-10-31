@@ -27,10 +27,10 @@ export function equipmentBatchHealth(shipments=[],controls=[],mappings=[],asOf=n
   const items=[...batches].map(([batchName,rows])=>{
     const control=controlByBatch.get(batchName)||normalizeEquipmentControl({batchName},rows[0]?.projectId||'khayrat');
     const lifecycleFields=['eta','arrivalDate','customsStatus','siteArrivalDate','status','installationArea'],reported=lifecycleFields.filter(field=>text(control[field])||rows.some(row=>text(row[field]))).length;
-    const anomalyCount=rows.filter(row=>Array.isArray(row._computedAnomalies)&&row._computedAnomalies.length).length;
+    const anomalyCount=rows.filter(row=>Array.isArray(row._computedAnomalies)&&row._computedAnomalies.length||row.packingReview).length;
     const linkedWbs=control.linkedWbs||[],linkedWorkshops=control.linkedWorkshops||[],mappingCoverage=linkedWbs.length+linkedWorkshops.length?100:rows.some(row=>mappedValues.has(text(row.category))||mappedValues.has(text(row.installationArea)))?50:0;
     const overdue=control.status!=='ready'&&Number.isFinite(dateValue(control.dueDate))&&dateValue(control.dueDate)<dateValue(asOf);
-    const blockers=[...(reported<3?['物流里程碑不足']:[]),...(mappingCoverage===0?['未关联 WBS / 车间']:[]),...(anomalyCount?['箱单异常待复核']:[]),...(overdue?['协调事项逾期']:[])];
+    const blockers=[...(reported<6?['物流里程碑不足']:[]),...(mappingCoverage===0?['未关联 WBS / 车间']:[]),...(anomalyCount?['箱单异常待复核']:[]),...(overdue?['协调事项逾期']:[])];
     return {batchName,rows,control,lifecycleCompleteness:Math.round(reported/lifecycleFields.length*100),mappingCoverage,anomalyCount,overdue,blockers,decisionReady:!blockers.length};
   }).sort((a,b)=>Number(b.overdue)-Number(a.overdue)||b.blockers.length-a.blockers.length||a.batchName.localeCompare(b.batchName,'zh-CN'));
   return {items,counts:{total:items.length,ready:items.filter(item=>item.decisionReady).length,blocked:items.filter(item=>item.blockers.length).length,overdue:items.filter(item=>item.overdue).length}};
@@ -41,7 +41,9 @@ export function normalizeRiskAction(value={},projectId='khayrat'){
 }
 
 export function mergeRiskActions(items=[],actions=[],asOf=new Date().toISOString().slice(0,10)){
+  const present=new Set(items.map(item=>item.id));
+  items=[...items,...actions.filter(action=>!present.has(action.id)).map(action=>({...action,severity:'medium',status:'active',factType:'unconfirmed',basis:'历史事项持续跟踪，未再次报告不代表解决',impact:'待负责人核对',action:'确认处理状态及解决依据',evidence:[],sources:[],...(action.history?.find(entry=>entry.snapshot)?.snapshot||{})}))];
   const byId=new Map(actions.map(value=>{const a=normalizeRiskAction(value,value.projectId);return [a.id,a];}));
-  const merged=items.map(item=>{const action=byId.get(item.id),actionStatus=action?.status||(item.status==='resolved'?'closed':'open'),status=action?actionStatus==='closed'?'resolved':'active':item.status||'active',overdue=status==='active'&&Number.isFinite(dateValue(action?.dueDate))&&dateValue(action.dueDate)<dateValue(asOf);return {...item,status,actionStatus,owner:action?.owner||'',dueDate:action?.dueDate||'',response:action?.response||'',closureNote:action?.closureNote||'',actionHistory:action?.history||[],overdue,unassigned:status==='active'&&!action?.owner};});
+  const merged=items.map(item=>{const action=byId.get(item.id),actionStatus=action?.status==='closed'&&action.closureNote?'closed':action?.status==='monitoring'?'monitoring':'open',status=actionStatus==='closed'?'resolved':'active',overdue=status==='active'&&Number.isFinite(dateValue(action?.dueDate))&&dateValue(action.dueDate)<dateValue(asOf);return {...item,status,actionStatus,owner:action?.owner||'',dueDate:action?.dueDate||'',response:action?.response||'',closureNote:action?.closureNote||'',actionHistory:action?.history||[],originalDueDate:action?.history?.find(h=>h.originalDueDate)?.originalDueDate||action?.dueDate||'',wasOverdue:(action?.history||[]).some(h=>h.previousDueDate&&h.at?.slice(0,10)>h.previousDueDate),taskState:action?.history?.at(-1)?.taskState||'',blockReason:action?.history?.at(-1)?.blockReason||'',needBy:action?.history?.at(-1)?.needBy||'',overdue,unassigned:status==='active'&&!action?.owner};});
   return {items:merged,counts:{total:merged.length,active:merged.filter(item=>item.status==='active').length,resolved:merged.filter(item=>item.status==='resolved').length,high:merged.filter(item=>item.status==='active'&&item.severity==='high').length,medium:merged.filter(item=>item.status==='active'&&item.severity==='medium').length,overdue:merged.filter(item=>item.overdue).length,unassigned:merged.filter(item=>item.status==='active'&&item.unassigned).length}};
 }
