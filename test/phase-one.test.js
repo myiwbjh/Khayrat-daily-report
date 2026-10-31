@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import XLSX from 'xlsx';
 import {parseXLSX,parseKhayratProgressWorkbook} from '../src/xlsx.js';
-import {applyBatchContext,installationReadiness,weeklyTasks,actionUpdate,shipmentImportDelta,reviewShipmentChange} from '../src/phase-one.js';
+import {applyBatchContext,installationReadiness,weeklyTasks,actionUpdate,shipmentImportDelta,reviewShipmentChange,selectPackingRows} from '../src/phase-one.js';
 import {mergeRiskActions} from '../src/decision-controls.js';
 import {civilReadiness,shipmentLifecycle} from '../src/equipment-intelligence.js';
 import {parsePackingWorkbook} from '../src/packing-workbook.js';
@@ -59,4 +59,14 @@ test('repeat import is a no-op and changed/translated rows preserve original and
 test('human quantity review keeps raw quantities and records the prior manual layer',()=>{
  const row={id:'x',quantity:2,manualControl:{siteArrivalDate:'2026-10-27'},pendingImportChanges:[{fields:['quantity'],candidate:{quantity:3,sourceFile:'revision.xls'}}]};
  const reviewed=reviewShipmentChange(row,0,'adopt');assert.equal(reviewed.quantity,2);assert.equal(reviewed.manualControl.quantity,3);assert.equal(reviewed.manualControl.siteArrivalDate,'2026-10-27');assert.equal(reviewed.manualHistory.length,1);assert.throws(()=>reviewShipmentChange(reviewed,0,'adopt'));
+});
+
+test('native packing selection preserves first package details through normalization staging',()=>{
+ const detail={sheet:'中文明细装箱单',row:5,values:['part']},rows=[{__sourceSheet:'中文总装箱单',__detailSources:[detail],'设备名称':'电机'}];
+ assert.deepEqual(selectPackingRows(rows)[0].__detailSources,[detail]);
+});
+test('quantity and evidence changes can be reviewed together without replacing raw source details',()=>{
+ const original={id:'one',shipmentBatch:'B01',packageLot:'P1',quantity:2,detailSources:[{row:5,quantity:2}]},candidate={...original,quantity:3,detailSources:[{row:5,quantity:3}]};
+ const delta=shipmentImportDelta([original],[candidate]),reviewed=reviewShipmentChange(delta.rows[0],0,'adopt');
+ assert.equal(reviewed.quantity,2);assert.equal(reviewed.manualControl.quantity,3);assert.deepEqual(reviewed.detailSources,original.detailSources);assert.deepEqual(reviewed.pendingImportChanges[0].candidate.detailSources,candidate.detailSources);assert.deepEqual(reviewed.pendingImportChanges[0].adoptedFields,['quantity']);assert.ok(reviewed.pendingImportChanges[0].retainedFields.includes('detailSources'));
 });

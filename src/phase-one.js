@@ -70,14 +70,14 @@ export function selectPackingRows(rows){
   const summaries=rows.filter(r=>/总箱单|总装箱|汇总|summary|master/i.test(r.__sourceSheet||''));
   if(!summaries.length)return rows;
   // Detail sheets remain source evidence; their quantities are not added again.
-  return summaries.map((r,index)=>index? r:{...r,__detailSources:rows.filter(r=>!summaries.includes(r))});
+  return summaries.map((r,index)=>index? r:{...r,__detailSources:[...(r.__detailSources||[]),...rows.filter(r=>!summaries.includes(r))]});
 }
 
 export function reviewShipmentChange(row,index,decision,at=new Date().toISOString()){
  const change=row.pendingImportChanges?.[index];
  if(!change||change.decision||!['adopt','retain'].includes(decision))throw new Error('变化不存在或已核对');
  const fields=['equipmentName','componentName','specification','quantity','unit','packingType','lengthCm','widthCm','heightCm','volumeM3','netWeightKg','grossWeightKg','weight','weightUnit','remark'];
- if(decision==='adopt'&&change.fields.some(k=>!fields.includes(k)))throw new Error('包含箱号、来源或物流等字段变化，请在箱件核对表确认；此处仅可采用数量、规格等可调整字段');
+ if(decision==='adopt'&&!change.fields.some(k=>fields.includes(k)))throw new Error('没有可调整的数量或规格字段，请在箱件表单核对物流，或确认保留原值');
  const overrides=decision==='adopt'?Object.fromEntries(fields.filter(k=>change.fields.includes(k)).map(k=>[k,change.candidate[k]])):{};
- return {...row,manualControl:{...row.manualControl,...overrides},pendingImportChanges:row.pendingImportChanges.map((c,i)=>i===index?{...c,decision,reviewedAt:at}:c),manualHistory:[...(row.manualHistory||[]),{at,decision,source:change.candidate.sourceFile,fields:change.fields,before:row.manualControl||{},after:overrides}]};
+ return {...row,manualControl:{...row.manualControl,...overrides},pendingImportChanges:row.pendingImportChanges.map((c,i)=>i===index?{...c,decision,reviewedAt:at,adoptedFields:Object.keys(overrides),retainedFields:c.fields.filter(k=>!Object.hasOwn(overrides,k))}:c),manualHistory:[...(row.manualHistory||[]),{at,decision,source:change.candidate.sourceFile,fields:change.fields,before:row.manualControl||{},after:overrides}]};
 }
