@@ -1,4 +1,23 @@
 import {test,expect} from '@playwright/test';
+import {b01PackingFixture} from '../test/fixtures/b01-packaging.mjs';
+import {normalizeShipmentRows} from '../src/project-data.js';
+import {publicProjection} from '../server/public-dashboard.js';
+
+test('public B01 statistics classify existing records without exposing private source fields or write controls',async({page})=>{
+ const {master}=b01PackingFixture(),shipments=normalizeShipmentRows(master.slice(4).map(r=>({'序号':r[0],'供应商':r[1],'Package/Lot':r[2],'设备名称':r[4],'发运批次':'B01','数量':r[7]})),'private-source.xls');
+ const payload=publicProjection([],[],[],{shipments,asOf:'2026-10-27'}),mutations=[],errors=[];
+ expect(payload.shipments).toHaveLength(49);expect(payload.shipments.filter(r=>r.publicPackagingKind==='contents')).toHaveLength(3);
+ expect(JSON.stringify(payload)).not.toMatch(/private-source|KLT-HT-JX16|FCIU503482|HJLU120423|rawSource|detailSources/);
+ page.on('request',r=>{if(!['GET','HEAD','OPTIONS'].includes(r.method()))mutations.push(r.url());});page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/api/config',r=>r.fulfill({json:{}}));
+ await page.route('**/api/public-dashboard',r=>r.fulfill({json:{published:true,...payload}}));
+ await page.goto('/view');await page.getByRole('link',{name:'设备跟踪'}).click();
+ await expect(page.locator('#shipmentPackageKpi')).toHaveText('46');
+ await expect(page.locator('#shipmentPackagingBasis')).toContainText('49 条原始记录 · 3 条箱内设备不重复计件');
+ await expect(page.locator('.shipment-batch>summary')).toContainText('46 件外包装（待确认）');
+ await expect(page.locator('#packageControlForm')).toBeHidden();await expect(page.locator('#importTop')).toBeHidden();
+ expect(mutations).toEqual([]);expect(errors).toEqual([]);
+});
 
 test('public refresh preserves historical cutoff, photo filters and open browsing while accepting live changes',async({page})=>{
  await page.clock.install();let content='旧施工',approved=true;
