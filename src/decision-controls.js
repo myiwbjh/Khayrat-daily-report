@@ -58,3 +58,14 @@ export function managementDashboardSummary({riskResult={items:[],counts:{}},ship
   const sourceDates=[...reports.map(row=>row.periodEnd||row.date),...shipments.flatMap(row=>[row.siteArrivalDate,row.arrivalDate,row.shippingDate])].filter(date=>date&&date<=asOf).sort();
   return {priorities,workshops,updatedAt:sourceDates.at(-1)||'',counts:riskResult.counts||{}};
 }
+
+export function matchesInstallationFilter(row={},filter=''){
+  if(!filter)return true;
+  const checks=row.installationChecks||{},confirmed=key=>checks[key]?.confirmed===true&&Boolean(text(checks[key]?.evidence));
+  const ready=['equipmentComplete','drawingsAvailable','foundationHandover','crewAndTools'].every(confirmed);
+  const arrived=row.lifecycle?.state==='arrived'||Boolean(row.siteArrivalDate)||/现场到货|已到场|delivered/i.test(text(row.status));
+  if(filter==='arrived')return arrived;
+  if(filter==='ready')return ready;
+  if(filter==='arrived-pending')return arrived&&!ready;
+  return filter.startsWith('missing:')&&!confirmed(filter.slice(8));
+}

@@ -176,6 +176,8 @@
           <div class="shipment-filter-bar">
             <label>批次<select id="shipmentBatchFilter"><option value="">全部批次</option></select></label>
             <label>类别<select id="shipmentCategoryFilter"><option value="">全部类别</option></select></label>
+            <label>车间<select id="shipmentWorkshopFilter"><option value="">全部车间</option></select></label>
+            <label>安装条件<select id="shipmentReadinessFilter"><option value="">全部状态</option><option value="arrived">已到场</option><option value="ready">四项依据完整</option><option value="arrived-pending">已到场、条件待确认</option><option value="missing:equipmentComplete">缺设备齐套依据</option><option value="missing:drawingsAvailable">缺图纸依据</option><option value="missing:foundationHandover">缺基础移交依据</option><option value="missing:crewAndTools">缺人员机具依据</option></select></label>
             <label class="shipment-search">搜索<input id="shipmentKeywordFilter" type="search" placeholder="设备、部件、规格、件号、供应商"></label>
             <label class="shipment-alert-filter"><input id="shipmentAnomalyFilter" type="checkbox"> 仅看待复核</label>
             <span id="shipmentFilterCount">0 条</span>
