@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
-import {progressDecisionState,equipmentBatchHealth,normalizeEquipmentControl,mergeRiskActions} from '../src/decision-controls.js';
+import {progressDecisionState,equipmentBatchHealth,normalizeEquipmentControl,mergeRiskActions,managementDashboardSummary} from '../src/decision-controls.js';
 
 test('progress decision gate blocks missing data and labels mismatched WBS values provisional',()=>{
  assert.equal(progressDecisionState({selected:[]}).status,'blocked');
@@ -20,6 +20,13 @@ test('risk actions persist ownership, overdue state and evidence-backed closure'
  const base={id:'risk-1',severity:'high',status:'active'},open=mergeRiskActions([base],[{id:'risk-1',owner:'项目经理',dueDate:'2026-10-10',status:'monitoring'}],'2026-10-14');assert.equal(open.items[0].overdue,true);assert.equal(open.counts.high,1);
  const closed=mergeRiskActions([base],[{id:'risk-1',owner:'项目经理',status:'closed',closureNote:'已验收'}],'2026-10-14');assert.equal(closed.items[0].status,'resolved');assert.equal(closed.counts.resolved,1);
  assert.equal(mergeRiskActions([{...base,status:'resolved'}],[],'2026-10-14').items[0].status,'active');
+});
+
+test('dashboard ranks exceptions, separates arrival from readiness and measures original promises',()=>{
+ const risks=[{id:'late',severity:'high',status:'active',sources:[{date:'2026-10-01'},{date:'2026-10-08'}]},{id:'done',severity:'medium',status:'active',sources:[{date:'2026-10-02'}]}],actions=[{id:'late',owner:'物流',dueDate:'2026-10-05',status:'open'},{id:'done',owner:'施工',dueDate:'2026-10-10',status:'closed',closureNote:'验收记录',closedAt:'2026-10-09T00:00:00Z'}],result=mergeRiskActions(risks,actions,'2026-10-12');
+ assert.equal(result.counts.repeated,1);assert.equal(result.counts.commitmentRate,.5);assert.equal(result.items[0].repeatCount,2);
+ const checks=Object.fromEntries(['equipmentComplete','drawingsAvailable','foundationHandover','crewAndTools'].map(key=>[key,{confirmed:true,evidence:'记录'}])),summary=managementDashboardSummary({riskResult:result,asOf:'2026-10-12',reports:[{date:'2026-10-11'}],shipments:[{association:{workshop:'水泥磨'},lifecycle:{state:'arrived'},installationChecks:checks},{association:{workshop:'水泥磨'},lifecycle:{state:'arrived'},installationChecks:{}}]});
+ assert.equal(summary.priorities[0].id,'late');assert.equal(summary.updatedAt,'2026-10-11');assert.equal(summary.workshops[0].ready,1);assert.equal(summary.workshops[0].arrived,2);assert.match(summary.workshops[0].missing.map(([name])=>name).join(','),/图纸/);
 });
 
 test('decision-control migration lets members read, editors write and readers cannot mutate',async()=>{const db=new PGlite(),editor='00000000-0000-4000-8000-000000000001',reader='00000000-0000-4000-8000-000000000002';try{
