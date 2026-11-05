@@ -21,19 +21,21 @@ export function emailLinkParams(value,supabaseUrl){
 }
 
 export class AuthSession {
-  constructor(client,{supabaseUrl=''}={}){this.client=client;this.supabaseUrl=supabaseUrl;this.session=null;this.listeners=new Set();this.verifying=false;}
+  constructor(client,{supabaseUrl=''}={}){this.client=client;this.supabaseUrl=supabaseUrl;this.session=null;this.listeners=new Set();this.verifying=false;this.signedOut=false;}
   subscribe(listener){this.listeners.add(listener);return ()=>this.listeners.delete(listener);}
   publish(session){this.session=session;for(const listener of this.listeners)listener(session);}
   async initialize(){
-    this.subscription=this.client.auth.onAuthStateChange((_event,session)=>{if(!this.verifying)this.publish(session);}).data.subscription;
+    this.subscription=this.client.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT')this.signedOut=true;if(!this.verifying&&(!this.signedOut||!session))this.publish(session);}).data.subscription;
     await this.current();return this.session;
   }
   async current(){
     if(this.verifying)return null;
     const {data,error}=await this.client.auth.getSession();
+    if(this.signedOut)return null;
     if(error){this.publish(null);throw error;}
     if(!data.session){this.publish(null);return null;}
     const verified=await this.client.auth.getUser();
+    if(this.signedOut)return null;
     if(verified.error){this.publish(null);throw verified.error;}
     this.publish({...data.session,user:verified.data.user});return this.session;
   }
@@ -53,7 +55,7 @@ export class AuthSession {
       const verified=await this.client.auth.getUser();
       cancelled();
       if(verified.error||!verified.data?.user?.email_confirmed_at||verified.data.user.email?.toLowerCase()!==expected)throw new Error('identity mismatch');
-      this.publish({...data.session,user:verified.data.user});return this.session;
+      this.signedOut=false;this.publish({...data.session,user:verified.data.user});return this.session;
     }catch{
       try{await this.client.auth.signOut({scope:'local'});}catch{/* Clear application authorization even if cleanup fails. */}
       this.publish(null);throw new Error(signal?.aborted?'登录已取消。':'邮箱或密码不正确，或登录暂不可用。请确认已为此邮箱设置密码。');
@@ -80,6 +82,6 @@ export class AuthSession {
       throw new Error(options.signal?.aborted?'登录已取消。':'登录链接已使用、已过期或邮箱不匹配。请重新发送，并验证尚未打开的新链接。');
     }
   }
-  async signOut(){const {error}=await this.client.auth.signOut({scope:'local'});if(error)throw error;this.publish(null);}
+  async signOut(){this.signedOut=true;this.publish(null);const {error}=await this.client.auth.signOut({scope:'local'});if(error){this.signedOut=false;throw error;}}
   dispose(){this.subscription?.unsubscribe();this.listeners.clear();}
 }
