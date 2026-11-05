@@ -15,6 +15,12 @@ test('manual report survives reload and history is collapsed by date',async({pag
 
 test('import preview can cancel without changing records',async({page})=>{await page.goto('/');const csv='日报名称,日期,车间,工序,活动编号,实际进度\nE2E,2026-09-08,粉磨车间,基础,A-002,10';await page.locator('#fileInput').setInputFiles({name:'e2e.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});await expect(page.getByRole('heading',{name:'导入前预览'})).toBeVisible();await page.getByRole('button',{name:'取消'}).click();await expect(page.locator('#recordCount')).toContainText('0 条');});
 
+test('management dashboard highlights evidence-backed exceptions and remains mobile readable',async({page})=>{
+ await page.goto('/#entry');await page.locator('[name="date"]').fill('2026-11-04');await page.locator('[name="workshop"]').fill('水泥磨');await page.locator('[name="process"]').fill('设备基础');await page.locator('[name="risk"]').fill('等待设计图纸，施工受阻');await page.getByRole('button',{name:'保存日报'}).click();await page.getByRole('link',{name:'工程总览'}).click();
+ await expect(page.getByRole('heading',{name:'管理驾驶舱'})).toBeVisible();await expect(page.locator('#phaseOnePriorities')).toContainText('最重要异常');await expect(page.locator('#phaseOnePriorities')).toContainText('数据更新至 2026-11-04');await expect(page.locator('.priority-card').first()).toBeVisible();
+ await page.setViewportSize({width:390,height:844});await expect(page.locator('.management-layout')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+});
+
 test('navigation keeps every page isolated and resolves dashboard anchors',async({page})=>{
  await page.goto('/#entry');
  await expect(page.locator('#entryView')).toBeVisible();

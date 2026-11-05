@@ -22,6 +22,19 @@ const severityOf=value=>/停工|重大|严重|关键线路|清关滞留|逾期/i
 const compact=value=>text(value).replace(/\s+/g,' ').slice(0,180);
 const responsibilityOf=category=>({设计图纸:'设计',设备清关:'采购/物流',设备到货:'采购/物流',人员资源:'施工管理',施工资源:'施工管理',施工停滞:'施工',进度滞后:'计划/施工',关键路径:'计划管理',资金约束:'商务/财务'}[category]||'项目管理');
 
+export function constraintChainRisks({reports=[],shipments=[],asOf=new Date().toISOString().slice(0,10)}={}){
+  const rows=reports.filter(row=>dateOf(row)<=asOf),rowText=row=>`${row.risk||''} ${row.rawRecord||''} ${row.constructionContent||''} ${row.status||''}`;
+  const chain=(key,title,stages,category,responsibility)=>{const matched=stages.map(stage=>({label:stage.label,rows:rows.filter(row=>stage.test.test(rowText(row)))})),present=matched.filter(stage=>stage.rows.length),missing=matched.filter(stage=>!stage.rows.length).map(stage=>stage.label);if(!present.length)return null;const sources=present.flatMap(stage=>stage.rows.slice(-2).map(sourceOf));return {key:`chain:${key}`,category,scope:'项目',severity:missing.length?'medium':'high',title:missing.length?`${title} · 待核实`:title,factType:missing.length?'unconfirmed':'confirmed',status:'active',sourceDate:sources.map(source=>source.date).sort().at(-1)||asOf,firstSeen:sources.map(source=>source.date).sort()[0]||asOf,basis:missing.length?'仅按来源中明确出现的环节关联，缺失环节不推断':'各环节均有日报/周报明确记录，仍需负责人确认因果方向',impact:missing.length?'制约传导尚未形成完整证据链，不作为既成事实':'可能形成跨部门连续制约',action:'在既有风险闭环中确认各环节责任人、承诺日期、状态及原始证据',evidence:[...present.map(stage=>`${stage.label}：${stage.rows.length} 条来源`),...(missing.length?[`缺少：${missing.join('、')}`]:[])],sources,responsibility};};
+  const logisticsDelay=shipments.filter(row=>{const status=`${row.status||''} ${row.customsStatus||''}`,due=row.eta||row.expectedSiteDate||'';return /延误|受阻|滞留|逾期|待清关/i.test(status)||Boolean(due&&due<asOf&&!row.siteArrivalDate&&!/已到场|现场到货|delivered/i.test(status));});
+  const supplyStages=[{label:'设备/物流延迟',test:/(?:设备|物流|发运|到货|清关|船期).{0,12}(?:延误|延迟|受阻|滞留|逾期|待清关|未到)|(?:延误|延迟|受阻|滞留|逾期|未到).{0,12}(?:设备|物流|发运|到货|清关|船期)/i},{label:'融资延迟',test:/(?:融资|授信|信用证|贷款|financ).{0,12}(?:延误|延迟|受阻|未批|未落实|不足)|(?:延误|延迟|受阻|未批|未落实|不足).{0,12}(?:融资|授信|信用证|贷款|financ)/i},{label:'付款延迟',test:/(?:付款|支付|应付|payment).{0,12}(?:延误|延迟|逾期|未付|受阻)|(?:延误|延迟|逾期|未付|受阻).{0,12}(?:付款|支付|应付|payment)/i},{label:'施工受限',test:/施工.{0,12}(?:受限|受阻|停工|影响)|(?:受限|受阻|停工).{0,12}施工/i}];
+  let supply=chain('logistics-funding-payment-construction','设备延迟 → 融资延迟 → 付款延迟 → 施工受限',supplyStages,'资金约束','商务/财务、采购/物流、施工');
+  if(supply&&!logisticsDelay.length&&!supplyStages.slice(0,3).some(stage=>rows.some(row=>stage.test.test(rowText(row)))))supply=null;
+  if(!supply&&logisticsDelay.length)supply={key:'chain:logistics-funding-payment-construction',category:'资金约束',scope:'项目',severity:'medium',title:'设备延迟 → 融资延迟 → 付款延迟 → 施工受限 · 待核实',factType:'unconfirmed',status:'active',sourceDate:logisticsDelay.map(dateOf).filter(Boolean).sort().at(-1)||asOf,firstSeen:logisticsDelay.map(dateOf).filter(Boolean).sort()[0]||asOf,basis:'物流台账显示延迟，其余环节缺少来源，不推断因果',impact:'制约传导尚未形成完整证据链，不作为既成事实',action:'在既有风险闭环中确认各环节责任人、承诺日期、状态及原始证据',evidence:[`设备/物流延迟：${logisticsDelay.length} 条物流台账`,'缺少：融资延迟、付款延迟、施工受限'],sources:logisticsDelay.slice(0,3).map(sourceOf),responsibility:'商务/财务、采购/物流、施工'};
+  if(supply&&logisticsDelay.length){supply.evidence[0]=`设备/物流延迟：${logisticsDelay.length} 条物流台账`;supply.sources=[...logisticsDelay.slice(0,3).map(sourceOf),...supply.sources];}
+  const power=chain('power-commissioning-production','供电延迟 → 调试受限 → 投产风险',[{label:'业主供电延迟',test:/(?:供电|送电|电网|业主.{0,8}电).{0,12}(?:延误|延迟|受阻|未完成|未落实)|(?:延误|延迟|受阻|未完成|未落实).{0,12}(?:供电|送电|电网|业主.{0,8}电)/i},{label:'调试受限',test:/调试.{0,12}(?:受限|受阻|延误|影响)|(?:受限|受阻|延误).{0,12}调试/i},{label:'投产风险',test:/(?:投产|出水泥|生产).{0,8}(?:风险|延误|延迟|影响|受限)|(?:风险|延误|延迟|影响|受限).{0,8}(?:投产|出水泥|生产)/i}],'进度滞后','业主接口、调试、计划');
+  return [supply,power].filter(Boolean);
+}
+
 export function analyzeProjectRisks({reports=[],progress=[],shipments=[],mappings=[],images=[],milestones=[],asOf=new Date().toISOString().slice(0,10),projectId='khayrat'}={}){
   const sameProject=row=>(row.projectId||row.project_id||'khayrat')===projectId;
   reports=reports.filter(row=>sameProject(row)&&dateOf(row)<=asOf);progress=progress.filter(sameProject);shipments=shipments.filter(sameProject);images=images.filter(row=>sameProject(row)&&!row.ignored&&!row.decorative&&dateOf(row)<=asOf);
@@ -31,6 +44,8 @@ export function analyzeProjectRisks({reports=[],progress=[],shipments=[],mapping
     const merged={...existing,...risk,key,responsibility:risk.responsibility||existing?.responsibility||responsibilityOf(risk.category),severity:!existing||severityRank[risk.severity]>=severityRank[existing.severity]?risk.severity:existing.severity,sources:[...new Map(sources.map(item=>[JSON.stringify(item),item])).values()],evidence:[...new Set(evidence.filter(Boolean))]};
     merged.id=stableId('risk',[key,merged.firstSeen||merged.sourceDate||''],projectId);risks.set(key,merged);
   };
+
+  for(const risk of constraintChainRisks({reports,shipments,asOf}))add(risk);
 
   const explicitGroups=new Map();
   for(const row of reports){const detail=compact(row.risk||((/risk$/.test(row.recordType||''))?row.rawRecord:'')||'');if(!detail||(!riskRE.test(detail)&&!/risk$/.test(row.recordType||'')))continue;const category=categoryOf(`${row.process} ${detail}`),scope=row.workshop||'项目',key=`fact:${category}:${scope}`,list=explicitGroups.get(key)||[];list.push({row,detail,category,scope});explicitGroups.set(key,list);}

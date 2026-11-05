@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {analyzeProjectRisks} from '../src/risk-analysis.js';
+import {analyzeProjectRisks,constraintChainRisks} from '../src/risk-analysis.js';
 
 test('risk analysis separates confirmed facts, inference and resolved history without duplicates',()=>{
   const reports=[
@@ -19,4 +19,12 @@ test('risk analysis separates confirmed facts, inference and resolved history wi
 test('steel silo logistics without foundation handover stays explicitly unconfirmed',()=>{
   const shipments=[{projectId:'khayrat',shipmentBatch:'B01',category:'钢板仓',equipmentName:'钢板仓筒体',status:'已发运',shippingDate:'2026-10-08',sourceFile:'B01箱单.xlsx',sourceRow:12}],result=analyzeProjectRisks({shipments,reports:[],progress:[],asOf:'2026-10-11'}),risk=result.items.find(item=>item.key==='unconfirmed:silo-installation-readiness');
   assert.equal(risk.factType,'unconfirmed');assert.equal(risk.severity,'high');assert.equal(risk.responsibility,'采购/物流');assert.match(risk.basis,/未找到基础验收/);
+});
+
+test('constraint chains show missing links instead of inventing causality',()=>{
+  const reports=[{date:'2026-10-01',risk:'业主供电延误',sourceFile:'周报.pptx'},{date:'2026-10-02',risk:'送电问题影响调试，调试受阻',sourceFile:'日报.pdf'}],shipments=[{eta:'2026-09-20',status:'运输中',equipmentName:'磨机',sourceFile:'物流.xlsx'}],chains=constraintChainRisks({reports,shipments,asOf:'2026-10-10'}),supply=chains.find(item=>item.key.includes('logistics')),power=chains.find(item=>item.key.includes('power'));
+  assert.equal(supply.factType,'unconfirmed');assert.match(supply.evidence.join('；'),/缺少：融资延迟、付款延迟、施工受限/);
+  assert.equal(power.factType,'unconfirmed');assert.match(power.evidence.join('；'),/投产风险/);
+  const complete=constraintChainRisks({asOf:'2026-10-10',reports:[{date:'2026-10-01',risk:'业主供电延迟造成调试受限并形成投产风险'}]}).find(item=>item.key.includes('power'));
+  assert.equal(complete.factType,'confirmed');assert.doesNotMatch(complete.title,/待核实/);
 });
