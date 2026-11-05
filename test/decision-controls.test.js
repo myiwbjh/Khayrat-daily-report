@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
-import {progressDecisionState,equipmentBatchHealth,normalizeEquipmentControl,mergeRiskActions,managementDashboardSummary} from '../src/decision-controls.js';
+import {progressDecisionState,equipmentBatchHealth,normalizeEquipmentControl,mergeRiskActions,managementDashboardSummary,matchesInstallationFilter} from '../src/decision-controls.js';
 
 test('progress decision gate blocks missing data and labels mismatched WBS values provisional',()=>{
  assert.equal(progressDecisionState({selected:[]}).status,'blocked');
@@ -27,6 +27,11 @@ test('dashboard ranks exceptions, separates arrival from readiness and measures 
  assert.equal(result.counts.repeated,1);assert.equal(result.counts.commitmentRate,.5);assert.equal(result.items[0].repeatCount,2);
  const checks=Object.fromEntries(['equipmentComplete','drawingsAvailable','foundationHandover','crewAndTools'].map(key=>[key,{confirmed:true,evidence:'记录'}])),summary=managementDashboardSummary({riskResult:result,asOf:'2026-10-12',reports:[{date:'2026-10-11'}],shipments:[{association:{workshop:'水泥磨'},lifecycle:{state:'arrived'},installationChecks:checks},{association:{workshop:'水泥磨'},lifecycle:{state:'arrived'},installationChecks:{}}]});
  assert.equal(summary.priorities[0].id,'late');assert.equal(summary.updatedAt,'2026-10-11');assert.equal(summary.workshops[0].ready,1);assert.equal(summary.workshops[0].arrived,2);assert.equal(summary.workshops[0].arrivedReady,1);assert.equal(summary.workshops[0].arrivedPending,1);assert.deepEqual(summary.workshops[0].conditionRows.map(row=>[row.label,row.confirmed]),[['设备齐套',1],['图纸',1],['基础移交',1],['人员机具',1]]);assert.match(summary.workshops[0].missing.map(([name])=>name).join(','),/图纸/);
+});
+
+test('installation filters expose arrived packages and preserve unknown conditions',()=>{
+ const row={siteArrivalDate:'2026-10-27',installationChecks:{foundationHandover:{confirmed:true,evidence:'F-1'}}};
+ assert.equal(matchesInstallationFilter(row,'arrived-pending'),true);assert.equal(matchesInstallationFilter(row,'missing:drawingsAvailable'),true);assert.equal(matchesInstallationFilter(row,'missing:foundationHandover'),false);assert.equal(matchesInstallationFilter(row,'ready'),false);
 });
 
 test('decision-control migration lets members read, editors write and readers cannot mutate',async()=>{const db=new PGlite(),editor='00000000-0000-4000-8000-000000000001',reader='00000000-0000-4000-8000-000000000002';try{
