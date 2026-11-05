@@ -103,6 +103,7 @@ test('phase one: package arrival stays partial and manual checks survive reimpor
  await csv(page,'#shipmentInput','partial.csv',content,'#shipmentCount');
  expect(state.tables.equipment_shipments).toHaveLength(2);
  expect(state.tables.equipment_shipments.some(r=>r.payload.manualControl?.installationChecks.foundationHandover.evidence==='基础移交单 F-1')).toBe(true);
+ await page.getByRole('link',{name:'工程总览'}).click();const readiness=page.locator('.readiness-list a').filter({hasText:'水泥磨'});await expect(readiness).toContainText('已到场 1');await expect(readiness).toContainText('到场待条件 1');await expect(readiness).toContainText('设备齐套 0/1 已确认');await expect(readiness).toContainText('图纸 0/1 已确认');await expect(readiness).toContainText('基础移交 1/1 已确认');await expect(readiness).toContainText('人员机具 0/1 已确认');
 });
 
 test('phase one: weekly task postponement and history survive a later week without the source',async({page})=>{

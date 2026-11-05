@@ -12,6 +12,10 @@ test('SDK restores verified session, receives rotation and clears on signout',as
   let listener;const session={access_token:'test-token'},client={auth:{getSession:async()=>({data:{session}}),getUser:async()=>({data:{user:{id:'test-user'}}}),onAuthStateChange:fn=>(listener=fn,{data:{subscription:{unsubscribe(){}}}}),signOut:async()=>({}),signInWithOtp:async()=>({})}};
   const auth=new AuthSession(client);assert.equal((await auth.initialize()).access_token,'test-token');listener('TOKEN_REFRESHED',{access_token:'rotated'});assert.equal(auth.session.access_token,'rotated');await auth.signOut();assert.equal(auth.session,null);
 });
+test('late session events cannot restore authorization after explicit signout',async()=>{
+  let listener;const client={auth:{getSession:async()=>({data:{session:{access_token:'test-token'}}}),getUser:async()=>({data:{user:{id:'test-user'}}}),onAuthStateChange:fn=>(listener=fn,{data:{subscription:{unsubscribe(){}}}}),signOut:async()=>({})}};
+  const auth=new AuthSession(client);await auth.initialize();await auth.signOut();listener('TOKEN_REFRESHED',{access_token:'stale-token'});assert.equal(auth.session,null);
+});
 test('unverified restored session never authorizes cloud writes',async()=>{
   const auth=new AuthSession({auth:{getSession:async()=>({data:{session:{access_token:'expired'}}}),getUser:async()=>({error:new Error('revoked')}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}});
   await assert.rejects(()=>auth.initialize(),/revoked/);assert.equal(auth.session,null);

@@ -17,7 +17,7 @@ test('import preview can cancel without changing records',async({page})=>{await 
 
 test('management dashboard highlights evidence-backed exceptions and remains mobile readable',async({page})=>{
  await page.goto('/#entry');await page.locator('[name="date"]').fill('2026-11-04');await page.locator('[name="workshop"]').fill('水泥磨');await page.locator('[name="process"]').fill('设备基础');await page.locator('[name="risk"]').fill('等待设计图纸，施工受阻');await page.getByRole('button',{name:'保存日报'}).click();await page.getByRole('link',{name:'工程总览'}).click();
- await expect(page.getByRole('heading',{name:'管理驾驶舱'})).toBeVisible();await expect(page.locator('#phaseOnePriorities')).toContainText('最重要异常');await expect(page.locator('#phaseOnePriorities')).toContainText('数据更新至 2026-11-04');await expect(page.locator('.priority-card').first()).toBeVisible();
+ await expect(page.getByRole('heading',{name:'管理驾驶舱'})).toBeVisible();await expect(page.locator('#phaseOnePriorities')).toContainText('最重要异常');await expect(page.locator('#phaseOnePriorities')).toContainText('数据更新至 2026-11-04');const priority=page.locator('.priority-card').filter({hasText:'水泥磨：设计图纸'});await expect(priority).toBeVisible();await priority.click();await expect(page.locator('#risksView')).toBeVisible();await expect(page.locator('.risk-card[open]').filter({hasText:'水泥磨：设计图纸'})).toBeVisible();await page.getByRole('link',{name:'工程总览'}).click();
  await page.setViewportSize({width:390,height:844});await expect(page.locator('.management-layout')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
 });
 
