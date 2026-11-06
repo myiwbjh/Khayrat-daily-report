@@ -5,6 +5,16 @@ test('S curve timeline keeps cumulative progress separate from monthly increment
 test('shipment hierarchy does not require workshop',()=>{const [row]=normalizeShipmentRows([{'设备类别':'粉磨设备','设备名称':'水泥磨','Package/Lot':'B01','发运批次':'S1','当前状态':'已到现场'}]);assert.equal(row.packageLot,'B01');assert.equal(row.installationArea,'');assert.equal(row.needsReview,false);});
 test('shipment ledger keeps package detail, leaves status blank and reports source anomalies',()=>{const rows=normalizeShipmentRows([{'序号':'1','设备类别':'粉磨设备','设备名称':'水泥磨','部件名称':'筒体','规格型号':'Φ4.2×13m','Package/Lot':'TSZC-1/2','发运批次':'B02','数量':'1','单位':'件','毛重Kg':'12000','体积m3':'20'},{'序号':'2','设备类别':'粉磨设备','设备名称':'水泥磨','Package/Lot':'TSZC-1/2','发运批次':'B02','数量':'1'}]);assert.equal(rows[0].status,'');assert.equal(rows[0].specification,'Φ4.2×13m');assert.notEqual(rows[0].id,rows[1].id);const summary=summarizeShipments(rows);assert.equal(summary.packages,2);assert.equal(summary.grossWeightKg,12000);assert.equal(summary.volumeM3,20);assert.equal(summary.anomalies.length,2);assert.ok(rows.every(row=>row._computedAnomalies.includes('件号重复')));});
 test('shipment dedupe keeps one asset and all source associations',()=>{const base={id:'shipment:1',shipmentBatch:'B02',packageLot:'P1',equipmentName:'水泥磨',projectId:'khayrat'},merged=mergeShipmentRecords([{...base,sourceFile:'B02.xlsx',sourceRow:8},{...base,sourceFile:'日报附件.xlsx',sourceRow:3,status:'现场到货'}]);assert.equal(merged.length,1);assert.equal(merged[0].status,'现场到货');assert.equal(merged[0].sourceAssociations.length,2);});
+test('shipment field merge is priority-based, retains lineage and exposes equal-priority conflicts',()=>{
+ const base={id:'shipment:1',shipmentBatch:'B02',packageLot:'P1',equipmentName:'水泥磨',projectId:'khayrat'};
+ const merged=mergeShipmentRecords([
+  {...base,sourceFile:'原箱单.xlsx',sourceRow:8,status:'运输中',sourceAuthority:'original-source'},
+  {...base,sourceFile:'已验证物流台账.xlsx',sourceRow:3,status:'到港',sourceAuthority:'current-verified'},
+  {...base,sourceFile:'另一份已验证台账.xlsx',sourceRow:9,status:'清关中',sourceAuthority:'current-verified'}
+  ])[0];
+ assert.equal(merged.status,'到港');assert.equal(merged.fieldSources.status.file,'已验证物流台账.xlsx');
+ assert.equal(merged.pendingSourceConflicts[0].field,'status');assert.equal(merged.pendingSourceConflicts[0].candidate,'清关中');
+});
 test('crosswalk supports many-to-many and identifies civil constraint',()=>{const progress=normalizeProgressRows([{'WBS':'CIV-01','分部分项':'磨机基础','权重':'100','月份':'2026-09','计划累计完成比例':'70','实际累计完成比例':'40'}]);const shipments=normalizeShipmentRows([{'设备类别':'粉磨设备','设备名称':'水泥磨','Package/Lot':'B01','当前状态':'现场到货'}]);const mappings=normalizeCrosswalkRows([{'来源类型':'equipment_category','来源值':'粉磨设备','目标类型':'wbs','目标值':'CIV-01'},{'来源类型':'daily_workshop','来源值':'水泥粉磨车间','目标类型':'wbs','目标值':'CIV-01'}]);assert.equal(mappings.length,2);assert.match(crossAnalyze({progress,shipments,mappings,asOf:'2026-10-06'})[0].title,/物流转为土建/);});
 test('reported project total wins display but mismatch is reviewable',()=>{assert.deepEqual(validateHeadcount({totalStaff:100,chineseStaff:30,localStaff:65}),{total:100,reportedTotal:100,components:95,consistent:false,needsReview:true});});
 

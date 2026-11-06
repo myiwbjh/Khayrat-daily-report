@@ -4,7 +4,7 @@ import {ApiError, requireConsent} from './ai-auth.js';
 import {rest, serviceAccess} from './project-auth.js';
 import {requireChainConsent} from './vision-provider.js';
 import {storedImage, visionImage, validateVision, VISION_SCHEMA} from './vision-service.js';
-import {findDuplicateEvidence,consolidateEvidence} from './photo-dedupe-service.js';
+import {findDuplicateEvidence,findReviewEvidenceCandidates,consolidateEvidence} from './photo-dedupe-service.js';
 
 const rpc=(name,body,restImpl)=>restImpl(`/rest/v1/rpc/${name}`,{method:'POST',body:JSON.stringify(body)});
 export function freeConsent(body,env=process.env){
@@ -65,8 +65,8 @@ export async function processVisionJob({restImpl=rest,env=process.env,fetchImpl=
       // Pixel facts are reusable; cross-validation belongs to this report/date.
       analysis={...analysis,result:{...analysis.result,crossValidation:{status:'insufficient-evidence',reason:'复用相同图片的视觉事实；当前日报关联需复核'}}};
     }
-    const completedEvidence={...image.evidence,...evidenceAnalysis(analysis,image.context,image.fingerprint),imageContentHash:contentHash,imageId:job.image_id};
-    await rpc('finish_vision_job',{p_id:job.image_id,p_lease:job.updated_at,p_analysis:analysis,p_evidence:evidenceAnalysis(analysis,image.context,image.fingerprint),p_hash:contentHash,p_error:null},restImpl);
+    const duplicateCandidates=await findReviewEvidenceCandidates({...image.evidence,imageId:job.image_id},{...image.fingerprint,contentHash},{restImpl,env,fetchImpl}).catch(()=>[]),evidence={...evidenceAnalysis(analysis,image.context,image.fingerprint),duplicateCandidates},completedEvidence={...image.evidence,...evidence,imageContentHash:contentHash,imageId:job.image_id};
+    await rpc('finish_vision_job',{p_id:job.image_id,p_lease:job.updated_at,p_analysis:analysis,p_evidence:evidence,p_hash:contentHash,p_error:null},restImpl);
     const consolidated=duplicate?await consolidateEvidence(completedEvidence,duplicate.candidate,duplicate.match,{env,fetchImpl}):null;
     let automaticReview='pending';try{await reviewImpl({imageIds:[consolidated?.canonical?.imageId||job.image_id],restImpl});automaticReview='complete';}catch{/* Recognition is saved; the editor refresh retries source review without a model call. */}
     return {processed:1,state:'success',cached:Boolean(analysis.cached),automaticReview};

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import XLSX from 'xlsx';
 import {parseXLSX,parseKhayratProgressWorkbook} from '../src/xlsx.js';
-import {applyBatchContext,installationReadiness,weeklyTasks,actionUpdate,shipmentImportDelta,reviewShipmentChange,selectPackingRows} from '../src/phase-one.js';
+import {applyBatchContext,installationReadiness,weeklyTasks,actionUpdate,bulkRiskAssignment,financingTriggerState,applyBulkInstallationEvidence,packageControlUpdate,shipmentImportDelta,reviewShipmentChange,selectPackingRows} from '../src/phase-one.js';
 import {mergeRiskActions} from '../src/decision-controls.js';
 import {civilReadiness,shipmentLifecycle} from '../src/equipment-intelligence.js';
 import {parsePackingWorkbook} from '../src/packing-workbook.js';
@@ -42,6 +42,49 @@ test('weekly plans keep stable IDs, original promise, postponement and evidence-
  assert.equal(action.history.find(h=>h.originalDueDate).originalDueDate,'2026-10-22');assert.equal(action.history.at(-1).previousDueDate,'2026-10-22');
  assert.throws(()=>actionUpdate(action,{status:'closed',closureNote:''},tasks[0]));
  const merged=mergeRiskActions([], [action],'2026-11-03');assert.equal(merged.items[0].id,tasks[0].id);assert.equal(merged.items[0].owner,'施工');assert.equal(merged.items[0].overdue,true);assert.ok(merged.items[0].sources.length);
+});
+
+test('open and monitoring actions require owner and commitment date; bulk assignment preserves promise history',()=>{
+ const previous={id:'risk:1',status:'open',history:[]};
+ assert.throws(()=>actionUpdate(previous,{status:'open',owner:'',dueDate:''},null),/负责人和承诺日期/);
+ const assigned=bulkRiskAssignment([previous,{id:'risk:2',status:'open',history:[]}],['risk:1','risk:2'],{status:'monitoring',owner:'施工经理',dueDate:'2026-11-10'},new Map(),'2026-11-06T08:00:00Z');
+ assert.equal(assigned.length,2);assert.equal(assigned[0].owner,'施工经理');
+ assert.equal(assigned[0].history.find(row=>row.originalDueDate).originalDueDate,'2026-11-10');
+ const postponed=actionUpdate(assigned[0],{status:'monitoring',owner:'施工经理',dueDate:'2026-11-12'},null,'2026-11-09T08:00:00Z');
+ assert.equal(postponed.history.find(row=>row.originalDueDate).originalDueDate,'2026-11-10');
+ assert.equal(postponed.history.at(-1).previousDueDate,'2026-11-10');
+});
+
+test('30 percent financing trigger needs scoped signed acceptance and remains pending confirmation',()=>{
+ const base={id:'shipment:1',siteArrivalDate:'2026-11-05',manualControl:{financingTrigger:{percentage:30,contractScope:'K-01 / B01'}}};
+ assert.equal(financingTriggerState(base).eligible,false);
+ const ready={...base,manualControl:{...base.manualControl,financingTrigger:{...base.manualControl.financingTrigger,acceptedAt:'2026-11-06',acceptanceEvidence:'业主签收单 AR-17'}}};
+ const state=financingTriggerState(ready);assert.equal(state.eligible,true);assert.equal(state.status,'pending-confirmation');assert.equal(state.percentage,30);
+ assert.equal(financingTriggerState({...ready,siteArrivalDate:'',manualControl:{...ready.manualControl,siteArrivalDate:''}}).eligible,false);
+});
+
+test('owner power dependency requires a structured commitment and evidence',()=>{
+ const previous={id:'power:1',status:'open',owner:'业主接口',dueDate:'2026-11-12',history:[]};
+ assert.throws(()=>actionUpdate(previous,{status:'monitoring',dependencyType:'owner-power',commitmentDate:'',dependencyEvidence:''},null),/供电依赖/);
+ const next=actionUpdate(previous,{status:'monitoring',dependencyType:'owner-power',commitmentDate:'2026-11-15',dependencyEvidence:'业主函件 P-12',commissioningScope:'水泥磨单机调试'},null,'2026-11-06T08:00:00Z');
+ assert.equal(next.history.at(-1).commitmentDate,'2026-11-15');assert.equal(next.history.at(-1).dependencyEvidence,'业主函件 P-12');
+});
+
+test('single package control records manual field provenance and never confirms financing automatically',()=>{
+ const next=packageControlUpdate({id:'p1',manualControl:{}},{id:'p1',siteArrivalDate:'2026-11-05',financingContractScope:'合同 K-01 / 箱 P1',financingAcceptedAt:'2026-11-06',financingAcceptanceEvidence:'验收单 A-9'},'2026-11-06T09:00:00Z');
+ assert.equal(next.manualControl.financingTrigger.status,'pending-confirmation');
+ assert.equal(next.manualControl.fieldProvenance.siteArrivalDate.authority,'manual-confirmed');
+ assert.equal(next.manualControl.fieldProvenance['financingTrigger.acceptanceEvidence'].authority,'manual-confirmed');
+ assert.equal(financingTriggerState(next).status,'pending-confirmation');
+});
+
+test('bulk installation evidence applies only selected checks and never derives site arrival',()=>{
+ const rows=[{id:'a',manualControl:{}},{id:'b',manualControl:{siteArrivalDate:'2026-11-01'}},{id:'c',manualControl:{}}];
+ const next=applyBulkInstallationEvidence(rows,['a','b'],{foundationHandover:'移交单 F-9',drawingsAvailable:'图纸批准 D-2'},{file:'handover.pdf',page:3},'2026-11-06T08:00:00Z');
+ assert.equal(next[0].manualControl.siteArrivalDate,undefined);assert.equal(next[1].manualControl.siteArrivalDate,'2026-11-01');assert.equal(next[2],rows[2]);
+ assert.equal(next[0].manualControl.installationChecks.foundationHandover.evidence,'移交单 F-9');
+ assert.equal(next[0].manualHistory.at(-1).scope,'bulk-selected');
+ assert.throws(()=>applyBulkInstallationEvidence(rows,['a'],{siteArrivalDate:'2026-11-06'},{file:'x'}),/不得批量确认实际到场/);
 });
 
 test('source says resolved does not close an issue without human closure evidence',()=>{

@@ -55,3 +55,31 @@ test('monthly end-of-period plan is never compared as same-date to partial weekl
  assert.match(svg,/stroke-dasharray="5 5"/);
  assert.match(svg,/2026-10-18/);
 });
+
+test('mixed dates and unconfirmed multi-WBS allocation block decision use',()=>{
+ const progress=[
+  {projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',batchQualityStatus:'Verified',importBatchId:'p',wbs:'A',item:'混凝土 A',isLeaf:true,month:'2026-09-30',weight:50,total:100,plannedCumulativePct:50,actualCumulativePct:40},
+  {projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',batchQualityStatus:'Verified',importBatchId:'p',wbs:'B',item:'混凝土 B',isLeaf:true,month:'2026-09-30',weight:50,total:100,plannedCumulativePct:50,actualCumulativePct:20}
+ ];
+ const reports=[{recordType:'weekly-quantity',sourceType:'weekly-report',periodStart:'2026-10-01',periodEnd:'2026-10-07',workCategory:'混凝土',workUnit:'m³',weeklyQuantity:10,weeklyCumulativeQuantity:80,plannedTotalQuantity:200}];
+ const summary=summarizeProgressWithWeekly({reports,progress,asOf:'2026-10-07'});
+ assert.ok(summary.reconciliation.some(row=>row.status==='retained'&&/多个 WBS/.test(row.reason)));
+ assert.equal(summary.actual,30);assert.equal(summary.variance,-20);assert.equal(summary.decisionEligible,false);
+});
+
+test('human-confirmed WBS allocation can distribute weekly quantity with auditable ratios',()=>{
+ const progress=[
+  {projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',importBatchId:'p',wbs:'A',item:'混凝土 A',isLeaf:true,month:'2026-09-30',weight:50,total:100,plannedCumulativePct:50,actualCumulativePct:20},
+  {projectId:'khayrat',sourceType:'progress-workbook',snapshotRole:'current',batchCurrentVersion:true,batchImportStatus:'complete',importBatchId:'p',wbs:'B',item:'混凝土 B',isLeaf:true,month:'2026-09-30',weight:50,total:100,plannedCumulativePct:50,actualCumulativePct:20}
+ ];
+ const reports=[{recordType:'weekly-quantity',sourceType:'weekly-report',periodStart:'2026-10-01',periodEnd:'2026-10-07',workCategory:'混凝土',workUnit:'m³',weeklyQuantity:10,weeklyCumulativeQuantity:80,plannedTotalQuantity:200}];
+ const mappings=[
+  {sourceType:'weekly_quantity',sourceValue:'混凝土',targetType:'wbs',targetValue:'A',relation:'allocation:0.25',note:'计划经理确认'},
+  {sourceType:'weekly_quantity',sourceValue:'混凝土',targetType:'wbs',targetValue:'B',relation:'allocation:0.75',note:'计划经理确认'}
+ ];
+ const summary=summarizeProgressWithWeekly({reports,progress,mappings,asOf:'2026-10-07'});
+ assert.equal(summary.reconciliation[0].method,'confirmed-allocation');
+ assert.equal(summary.latest.find(row=>row.wbs==='A').actualCumulativePct,20);
+ assert.equal(summary.latest.find(row=>row.wbs==='B').actualCumulativePct,60);
+ assert.equal(summary.decisionEligible,false);
+});

@@ -145,9 +145,9 @@
       <section id="imagesView" class="page-view" hidden>
         <div class="entry-heading"><div><p class="eyebrow">PHOTO EVIDENCE / REVIEW</p><h1>现场图片证据</h1><p>管理 PDF 提取图片、规则分析结果与日报关联。图片可见内容和自动推断始终分开展示。</p></div><span id="imageStorageCount" class="count">0 张</span></div>
         <div class="storage-notice"><b>分析边界</b><span>日报原文、图片可见事实与 AI 推断分开展示。视觉分析须经项目负责人批准服务费用，并取得本次图片传输授权；没有人员不代表停工。</span></div>
-        <p id="visionStatus"></p><label class="check"><input id="visionConsent" type="checkbox"> <span id="visionConsentText">视觉服务未配置；请先确认接收平台和数据处理规则。</span></label><button id="analyzeImages" class="outline">识别 / 重试当前筛选的未识别图片</button><button id="stopVision" class="outline" disabled>停止后续分析</button><section class="filters image-filters"><label>日期<input id="imageDate" type="date"></label><label>车间<select id="imageWorkshop"><option value="">全部车间</option></select></label><label>工序<select id="imageProcess"><option value="">全部工序</option></select></label><label>日报名称<input id="imageSource" placeholder="搜索文件名"></label><label class="check"><input id="criticalOnly" type="checkbox"> 仅关键证据</label><button id="imageReset">重置</button></section>
+        <p id="visionStatus"></p><label class="check"><input id="visionConsent" type="checkbox"> <span id="visionConsentText">视觉服务未配置；请先确认接收平台和数据处理规则。</span></label><button id="analyzeImages" class="outline">识别 / 重试当前筛选的未识别图片</button><button id="fingerprintBackfill" class="outline" type="button" data-write>补齐 20 张指纹 / 刷新重复候选</button><button id="stopVision" class="outline" disabled>停止后续分析</button><section class="filters image-filters"><label>日期<input id="imageDate" type="date"></label><label>车间<select id="imageWorkshop"><option value="">全部车间</option></select></label><label>工序<select id="imageProcess"><option value="">全部工序</option></select></label><label>日报名称<input id="imageSource" placeholder="搜索文件名"></label><label class="check"><input id="criticalOnly" type="checkbox"> 仅关键证据</label><button id="imageReset">重置</button></section>
         <p id="autoReviewStatus">自动核对依据：原始日报、照片标题及周报；无法确认的保留人工核对。</p>
-        <div class="evidence-status-filters" role="group" aria-label="图片识别状态"><button type="button" class="outline" data-evidence-status="all" aria-pressed="true">全部</button><button type="button" class="outline" data-evidence-status="unrecognized" aria-pressed="false">未识别（0）</button><button type="button" class="outline" data-evidence-status="review" aria-pressed="false">待人工核对（0）</button><small>数量按全部可访问照片统计；筛选同时应用日期、车间等条件。</small></div>
+        <div class="evidence-status-filters" role="group" aria-label="图片识别状态"><button type="button" class="outline" data-evidence-status="all" aria-pressed="true">全部</button><button type="button" class="outline" data-evidence-status="unrecognized" aria-pressed="false">未识别（0）</button><button type="button" class="outline" data-evidence-status="review" aria-pressed="false">待人工核对（0）</button><button type="button" class="outline" data-evidence-status="duplicates" aria-pressed="false">重复候选（0）</button><small>数量按全部可访问照片统计；感知相似只进入人工候选，不自动删除。</small></div>
         <div id="imageGallery" class="image-gallery"></div>
         <nav id="imagePagination" class="image-pagination" aria-label="图片证据分页" hidden><button id="imagePrev" class="outline" type="button">上一页</button><span id="imagePageStatus"></span><button id="imageNext" class="outline" type="button">下一页</button></nav>
       </section>
@@ -182,6 +182,14 @@
             <label class="shipment-alert-filter"><input id="shipmentAnomalyFilter" type="checkbox"> 仅看待复核</label>
             <span id="shipmentFilterCount">0 条</span>
           </div>
+          <form id="shipmentBulkEvidenceForm" class="control-form" data-write>
+            <p class="wide"><b>对勾选箱件批量引用同一安装条件依据</b>；只更新明确勾选的条件，不批量确认实际到场。</p>
+            <label>依据文件/记录<input name="sourceFile" required placeholder="例如：基础移交单 F-9"></label>
+            <label>页码<input name="sourcePage" type="number" min="1"></label>
+            <label>设备齐套依据<input name="equipmentComplete"></label><label>图纸可用依据<input name="drawingsAvailable"></label>
+            <label>基础移交依据<input name="foundationHandover"></label><label>人员机具依据<input name="crewAndTools"></label>
+            <button class="primary" type="submit">预览并应用到勾选箱件</button>
+          </form>
           <div id="shipmentHierarchy" class="shipment-hierarchy"></div>
         </article>
       </section>
@@ -189,7 +197,7 @@
       <section id="risksView" class="page-view" hidden>
         <div class="section-heading"><h2>风险与制约</h2><p>综合日报、周报、WBS、设备物流、人员和照片证据；事实与系统推断分开显示。</p></div>
         <section class="risk-kpis" aria-label="风险统计"><article><span>活动风险</span><b id="riskActiveKpi">0</b></article><article class="alert-kpi"><span>高风险</span><b id="riskHighKpi">0</b></article><article><span>中风险</span><b id="riskMediumKpi">0</b></article><article><span>已解决历史</span><b id="riskResolvedKpi">0</b></article></section>
-        <article class="panel"><div class="risk-filter-bar"><label>等级<select id="riskSeverityFilter"><option value="">全部等级</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label>状态<select id="riskStatusFilter"><option value="">全部状态</option><option value="active">处理中</option><option value="resolved">已解决</option></select></label><label class="shipment-search">搜索<input id="riskKeywordFilter" type="search" placeholder="风险、WBS、车间、设备或依据"></label><span id="riskFilterCount">0 项</span></div><div id="riskRows" class="risk-register"></div></article>
+        <article class="panel"><div class="risk-filter-bar"><label>等级<select id="riskSeverityFilter"><option value="">全部等级</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label>状态<select id="riskStatusFilter"><option value="">全部状态</option><option value="active">处理中</option><option value="resolved">已解决</option></select></label><label class="shipment-search">搜索<input id="riskKeywordFilter" type="search" placeholder="风险、WBS、车间、设备或依据"></label><span id="riskFilterCount">0 项</span></div><form id="riskBulkForm" class="control-form" data-write><p class="wide"><b>未分派事项批量接单</b>：勾选事项后统一设置负责人和原承诺日期。</p><label>负责人<input name="owner" required maxlength="160"></label><label>承诺日期<input name="dueDate" required type="date"></label><input type="hidden" name="status" value="open"><button class="primary" type="submit">批量分派勾选事项</button></form><div id="riskRows" class="risk-register"></div></article>
       </section>
 
       <section id="dataView" class="page-view" hidden>
