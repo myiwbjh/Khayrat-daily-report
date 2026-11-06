@@ -1,6 +1,6 @@
 # Khayrat 项目状态（2026-11-06）
 
-## 当前工作：管理闭环与数据可信度小步升级（待 PR 审核）
+## 当前工作：管理闭环与数据可信度小步升级（PR #68 待合并授权）
 - 基线为最新 `master` / Production `d0b01fc4d83cee095864407bf48fbecd2cf54ff0`，Vercel Production `dpl_DhJAGV1q5iagGH2VjSiVCL25yUrJ` 为 READY；本轮复用现有 Supabase `sucepqjdxlpobjsrkdzn`，未新增表、迁移或权限策略，未写 Production 数据。
 - `risk_actions` 增加未分派多选队列；新推导事项只读展示、不再因打开页面自动写成无负责人的 `open` 记录。`open/monitoring` 强制负责人和承诺日期，原承诺、每次顺延和来源快照继续写入既有 `history`。业主供电—调试制约增加结构化送电承诺日、调试范围和签认依据。
 - 周报实绩只有一对一 WBS 映射，或 Crosswalk 中人工确认、完整覆盖且合计 100% 的多 WBS 比例，才进入正式实际值。计划/实际截止日混合、部分 WBS 沿用旧实绩、未分配多 WBS 或其他 `basisIssues` 均禁止显示“已验证可决策”。
@@ -9,7 +9,7 @@
 - 设备页支持筛选后多选箱件、批量引用同一安装条件证据；只改勾选箱件和明确填写的条件，保留逐箱例外及人工历史，拒绝批量写入实际到场。逐箱详情显示字段级优先级（人工确认 > 已验证台账 > 原始来源）、来源、同级冲突和覆盖历史。
 - 公开投影仍使用原字段白名单，不包含融资合同/签认、供电承诺证据、字段来源或人工历史。Reader 仍只能读；新增照片指纹补齐接口仅 Editor 可调用。
 - 本地验收：286 项 Node 单元/权限测试、静态构建和 53 项 Playwright 浏览器测试通过；新增浏览器覆盖批量分派、批量安装条件及不推导到场。Production 只读 GET `/`、`/view`、`/api/config`、`/api/public-dashboard` 均为 200，近 7 天 Vercel 运行时错误为 0。Supabase 为 `ACTIVE_HEALTHY`，相关表 RLS 保持 Reader 读/Editor 写边界。
-- 当前生产仍有 63/63 条 `risk_actions` 缺负责人或承诺日期，385 条箱件记录；本轮不回填、不自动分派。下一步仅创建一个 PR，等待检查全部通过和明确授权后再合并部署。
+- 当前生产仍有 63/63 条 `risk_actions` 缺负责人或承诺日期，385 条箱件记录；本轮不回填、不自动分派。唯一 PR [#68](https://github.com/myiwbjh/Khayrat-daily-report/pull/68) 已创建，GitHub Actions `Khayrat validation` run #190 的 unit-build 与 browser 均通过，无审查线程；保持未合并、未部署，等待明确授权。
 
 ## 当前工作：设备安装条件精准下钻（2026-11-05）
 - 基线 master / Production `41a7c1f`（PR #66 已合并发布，部署 `dpl_zLTKzZoZRVdavJYoBpdABH9aK9J9` READY；首页/API 200，近一小时运行时错误 0）。
