@@ -28,8 +28,8 @@ test('completed calibrations leave the review queue without suppressing confirme
   assert.deepEqual(original.calibrationHistory,[{decision:'unresolved'}]);
 });
 test('counts cover the full collection; retries exclude valid results, ignored photos and in-flight work',()=>{
-  const photos=[...Array.from({length:525},()=>photo),{...photo,visionEnabled:false,analysisStatus:'failed'}, {...photo,association:{needsReview:true}}, {...photo,ignored:true}, {...photo,decorative:true}];
-  assert.deepEqual(evidenceStatusCounts(photos),{all:528,unrecognized:1,review:1,recognized:525,excluded:1,failed:1});
+  const photos=[...Array.from({length:524},()=>photo),{...photo,duplicateCandidates:[{imageId:'possible-copy'}]},{...photo,visionEnabled:false,analysisStatus:'failed'}, {...photo,association:{needsReview:true}}, {...photo,ignored:true}, {...photo,decorative:true}];
+  assert.deepEqual(evidenceStatusCounts(photos),{all:528,unrecognized:1,review:1,recognized:525,excluded:1,failed:1,duplicates:1});
   for(const state of ['pending','running'])assert.equal(canRecognizeEvidence({...photo,visionEnabled:false,analysisStatus:state}),false);
   assert.equal(canRecognizeEvidence({...photo,visionEnabled:false,analysisStatus:'failed'}),true);
   assert.equal(canRecognizeEvidence(photo),false);

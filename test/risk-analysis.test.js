@@ -28,3 +28,10 @@ test('constraint chains show missing links instead of inventing causality',()=>{
   const complete=constraintChainRisks({asOf:'2026-10-10',reports:[{date:'2026-10-01',risk:'业主供电延迟造成调试受限并形成投产风险'}]}).find(item=>item.key.includes('power'));
   assert.equal(complete.factType,'confirmed');assert.doesNotMatch(complete.title,/待核实/);
 });
+
+test('signed package arrival creates a pending financing review, never a confirmed payment',()=>{
+ const shipment={id:'P1',projectId:'khayrat',siteArrivalDate:'2026-11-05',sourceFile:'验收台账.xlsx',manualControl:{financingTrigger:{percentage:30,contractScope:'合同 K-01 / 箱 P1',acceptedAt:'2026-11-06',acceptanceEvidence:'签收单 A-9',status:'confirmed'}}};
+ const risk=analyzeProjectRisks({shipments:[shipment],asOf:'2026-11-06'}).items.find(item=>item.key==='unconfirmed:financing-trigger:P1');
+ assert.equal(risk.factType,'unconfirmed');assert.match(risk.title,/待财务确认/);assert.match(risk.basis,/不自动确认应付款/);
+ assert.equal(analyzeProjectRisks({shipments:[{...shipment,siteArrivalDate:'',manualControl:{...shipment.manualControl,siteArrivalDate:''}}],asOf:'2026-11-06'}).items.some(item=>item.key==='unconfirmed:financing-trigger:P1'),false);
+});

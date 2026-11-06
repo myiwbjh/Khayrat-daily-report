@@ -41,6 +41,9 @@ export function weeklyTasks(reports=[],actions=[],projectId='khayrat') {
 }
 
 export function actionUpdate(previous,values,snapshot,now=new Date().toISOString()) {
+  const nextStatus=values.status||previous.status||'open',owner=clean(values.owner??previous.owner),dueDate=clean(values.dueDate??previous.dueDate);
+  if(['open','monitoring'].includes(nextStatus)&&(!owner||!dueDate))throw new Error('open/monitoring 事项必须填写负责人和承诺日期');
+  if(values.dependencyType==='owner-power'&&(!clean(values.commitmentDate)||!clean(values.dependencyEvidence)))throw new Error('业主供电依赖必须填写承诺日期和依据');
   if(values.taskState==='blocked'&&(!clean(values.blockReason)||!clean(values.needBy)))throw new Error('受阻任务需填写原因及需解决日期');
   if(values.status==='closed'&&!clean(values.closureNote))throw new Error('关闭事项必须填写可追溯的解决依据');
   const history=[...(previous.history||[])];
@@ -48,6 +51,28 @@ export function actionUpdate(previous,values,snapshot,now=new Date().toISOString
   if(!history.some(h=>h.originalDueDate)&&values.dueDate)history.push({at:now,originalDueDate:previous.dueDate||values.dueDate});
   history.push({at:now,...values,previousDueDate:previous.dueDate||'',previousStatus:previous.status||'open'});
   return {...previous,...values,history,closedAt:values.status==='closed'?(previous.closedAt||now):''};
+}
+
+export function packageControlUpdate(previous={},values={},at=new Date().toISOString()){
+  const fields={...values};delete fields.id;const installationChecks=Object.fromEntries(['equipmentComplete','drawingsAvailable','foundationHandover','crewAndTools'].map(key=>[key,{confirmed:Boolean(clean(fields[key])),evidence:clean(fields[key])}]));for(const key of Object.keys(installationChecks))delete fields[key];const financingTrigger={percentage:30,contractScope:clean(fields.financingContractScope),acceptedAt:clean(fields.financingAcceptedAt),acceptanceEvidence:clean(fields.financingAcceptanceEvidence),status:clean(fields.financingStatus)||'pending-confirmation'};for(const key of ['financingContractScope','financingAcceptedAt','financingAcceptanceEvidence','financingStatus'])delete fields[key];const before=previous.manualControl||{},provenance={...(before.fieldProvenance||{}),...Object.fromEntries(Object.keys(fields).filter(key=>clean(fields[key])).map(key=>[key,{authority:'manual-confirmed',at}]))};for(const [key,value] of Object.entries(financingTrigger))if(clean(value))provenance[`financingTrigger.${key}`]={authority:'manual-confirmed',at};const after={...before,...fields,installationChecks,financingTrigger,fieldProvenance:provenance};return {...previous,manualControl:after,manualHistory:[...(previous.manualHistory||[]),{at,scope:'single-package',before,after}]};
+}
+
+export function bulkRiskAssignment(actions=[],ids=[],values={},snapshots=new Map(),now=new Date().toISOString()){
+  const selected=new Set(ids);
+  return actions.filter(action=>selected.has(action.id)).map(action=>actionUpdate(action,values,snapshots.get(action.id)||null,now));
+}
+
+export function financingTriggerState(row={}){
+  const control={...row,...row.manualControl},trigger=control.financingTrigger||{},percentage=Number(trigger.percentage||30),arrived=clean(control.siteArrivalDate),contractScope=clean(trigger.contractScope),acceptedAt=clean(trigger.acceptedAt),acceptanceEvidence=clean(trigger.acceptanceEvidence),eligible=percentage===30&&Boolean(arrived&&contractScope&&acceptedAt&&acceptanceEvidence);
+  return {eligible,percentage,contractScope,acceptedAt,acceptanceEvidence,status:trigger.status==='confirmed'&&eligible?'confirmed':eligible?'pending-confirmation':'incomplete',basis:eligible?'逐箱实际到场及签认依据齐全；仍需财务人工确认':'缺少逐箱实际到场、合同范围或签认依据'};
+}
+
+export function applyBulkInstallationEvidence(rows=[],ids=[],evidence={},source={},at=new Date().toISOString()){
+  if(Object.hasOwn(evidence,'siteArrivalDate'))throw new Error('不得批量确认实际到场');
+  const allowed=['equipmentComplete','drawingsAvailable','foundationHandover','crewAndTools'],selected=new Set(ids),entries=allowed.filter(key=>clean(evidence[key]));
+  if(!selected.size||!entries.length)throw new Error('请选择箱件并填写至少一项安装条件依据');
+  if(!clean(source.file))throw new Error('批量依据必须注明来源文件或记录');
+  return rows.map(row=>{if(!selected.has(row.id))return row;const previous=row.manualControl||{},checks={...(previous.installationChecks||{})},fieldProvenance={...(previous.fieldProvenance||{})};for(const key of entries){checks[key]={confirmed:true,evidence:clean(evidence[key]),source:{file:clean(source.file),page:source.page||null},confirmedAt:at};fieldProvenance[`installationChecks.${key}`]={authority:'manual-confirmed',file:clean(source.file),page:source.page||null,at};}const after={...previous,installationChecks:checks,fieldProvenance};return {...row,manualControl:after,manualHistory:[...(row.manualHistory||[]),{at,scope:'bulk-selected',selectedIds:[...selected],source:{file:clean(source.file),page:source.page||null},before:previous,after}]};});
 }
 
 export function shipmentImportDelta(existing,incoming){

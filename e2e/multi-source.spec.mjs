@@ -107,6 +107,20 @@ test('phase one: package arrival stays partial and manual checks survive reimpor
  await readiness.click();await expect(page.locator('#equipmentView')).toBeVisible();await expect(page.locator('#shipmentWorkshopFilter')).toHaveValue('水泥磨');await expect(page.locator('#shipmentReadinessFilter')).toHaveValue('arrived-pending');await expect(page.locator('#shipmentFilterCount')).toHaveText('1 / 2 条');await expect(page.locator('.shipment-equipment')).toHaveCount(1);await expect(page.locator('.shipment-equipment')).toContainText('安装条件待确认');
 });
 
+test('management closure: unassigned risks can be selected and assigned in one audited queue',async({page})=>{
+ const state=await sandbox(page);state.tables.daily_reports=[1,2].map(number=>({id:`risk-${number}`,project_id:'khayrat',payload:{id:`risk-${number}`,date:'2026-10-20',workshop:`车间 ${number}`,process:'施工',risk:`设备到货延误 ${number}`,sourceFile:`daily-${number}.pdf`}}));await login(page);
+ await page.getByRole('link',{name:'风险与制约'}).click();await expect.poll(()=>page.locator('[data-risk-select]').count()).toBeGreaterThanOrEqual(2);await page.locator('[data-risk-select]').first().check();await page.locator('[data-risk-select]').nth(1).check();
+ const queue=page.locator('#riskBulkForm');await queue.locator('[name="owner"]').fill('项目协调经理');await queue.locator('[name="dueDate"]').fill('2026-11-12');await queue.locator('button[type="submit"]').click();
+ await expect(page.locator('#toast')).toContainText('已分派 2 项');const assigned=state.tables.risk_actions.filter(row=>row.owner==='项目协调经理');expect(assigned).toHaveLength(2);expect(assigned.every(row=>row.due_date==='2026-11-12')).toBe(true);expect(assigned.every(row=>row.history.some(change=>change.originalDueDate==='2026-11-12'))).toBe(true);
+});
+
+test('management closure: bulk installation evidence affects selected packages only and never derives arrival',async({page})=>{
+ const state=await sandbox(page);await login(page);await csv(page,'#shipmentInput','packages.csv','设备类别,设备名称,Package/Lot,发运批次,数量,单位\nMill,磨机,PKG-1,B01,1,件\nMill,电机,PKG-2,B01,1,件\nMill,减速机,PKG-3,B01,1,件','#shipmentCount');await page.getByRole('link',{name:'设备跟踪'}).click();
+ const batch=page.locator('#shipmentHierarchy>.shipment-batch').first();await batch.locator(':scope>summary').click();const category=batch.locator('.shipment-category').first();await category.locator(':scope>summary').click();const packages=category.locator('.shipment-equipment');await packages.nth(0).locator('[data-shipment-select]').check();await packages.nth(1).locator('[data-shipment-select]').check();
+ const form=page.locator('#shipmentBulkEvidenceForm');await form.locator('[name="sourceFile"]').fill('基础移交单 F-9');await form.locator('[name="sourcePage"]').fill('3');await form.locator('[name="foundationHandover"]').fill('监理、土建、安装三方签认');page.once('dialog',dialog=>dialog.accept());await form.locator('button[type="submit"]').click();
+ await expect(page.locator('#toast')).toContainText('实际到场状态未改变');const saved=state.tables.equipment_shipments.map(row=>row.payload);expect(saved.filter(row=>row.manualControl?.installationChecks?.foundationHandover?.evidence==='监理、土建、安装三方签认')).toHaveLength(2);expect(saved.filter(row=>row.manualControl?.siteArrivalDate)).toHaveLength(0);expect(saved.find(row=>row.packageLot==='PKG-3').manualControl).toBeUndefined();
+});
+
 test('phase one: weekly task postponement and history survive a later week without the source',async({page})=>{
  const state=await sandbox(page);state.tables.daily_reports=[{id:'week',project_id:'khayrat',payload:{date:'2026-10-20',workshop:'水泥磨',process:'周计划',nextWeekPlan:'安装电机',sourceFile:'第20期.pptx'}}];await login(page);
  await page.getByRole('link',{name:'风险与制约'}).click();

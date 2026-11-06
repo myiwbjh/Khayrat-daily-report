@@ -19,8 +19,8 @@ export function evidenceStatus(image={}){
   return image.crossValidation?.status==='potential-conflict'||association.needsReview===true||['unassociated','ambiguous','conflict'].includes(association.status)||!image.relatedDate||!image.relatedWorkshop||!(image.relatedRecordId||image.relatedRecordKey)||image.dateAssociation?.needsReview===true||image.reviewFields?.some(field=>['date','workshop','association'].includes(field))?'review':'recognized';
 }
 export function evidenceStatusCounts(images){
-  const counts={all:0,unrecognized:0,review:0,recognized:0,excluded:0,failed:0};
-  for(const image of images){if(image.decorative||image.logoConfirmed)continue;counts.all++;const status=evidenceStatus(image);counts[status]++;if(status==='unrecognized'&&image.analysisStatus==='failed')counts.failed++;}
+  const counts={all:0,unrecognized:0,review:0,recognized:0,excluded:0,failed:0,duplicates:0};
+  for(const image of images){if(image.decorative||image.logoConfirmed)continue;counts.all++;const status=evidenceStatus(image);counts[status]++;if(status==='unrecognized'&&image.analysisStatus==='failed')counts.failed++;if(Array.isArray(image.duplicateCandidates)&&image.duplicateCandidates.length)counts.duplicates++;}
   return counts;
 }
 export function canRecognizeEvidence(image){return evidenceStatus(image)==='unrecognized'&&Boolean(image.objectPath)&&!['pending','running'].includes(image.analysisStatus);}

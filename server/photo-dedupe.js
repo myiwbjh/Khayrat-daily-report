@@ -32,6 +32,14 @@ export function duplicateCandidate(current,candidate){
   return standardWorkshop(current.relatedWorkshop)===standardWorkshop(candidate.relatedWorkshop);
 }
 
+export function duplicateReviewCandidate(current,candidate){
+  if(!current||!candidate||current.imageId===candidate.imageId||current.ignored||candidate.ignored||current.decorative||candidate.decorative||current.logoConfirmed||candidate.logoConfirmed)return {candidate:false,autoMerge:false,reason:'not-eligible'};
+  const match=samePhoto(current,candidate);if(!match.match)return {candidate:false,autoMerge:false,reason:'fingerprint-different',match};
+  const autoMerge=duplicateCandidate(current,candidate)&&match.method==='sha256';
+  const reasons=[photoSourceKind(current)===photoSourceKind(candidate)?'同来源重复候选':'跨来源候选',current.relatedDate===candidate.relatedDate?'同日期':'跨日期复用候选',standardWorkshop(current.relatedWorkshop)===standardWorkshop(candidate.relatedWorkshop)?'同车间':'车间不同待核'];
+  return {candidate:true,autoMerge,reason:reasons.join('；'),match};
+}
+
 export function sourceAssociation(image){return {sourceType:image.sourceType||'daily-report',sourceFile:image.sourceFile||'',pageNumber:image.pageNumber||null,imageIndex:image.imageIndex||null,reportId:image.relatedRecordId||'',recordKey:image.relatedRecordKey||'',relatedDate:image.relatedDate||'',workshop:image.relatedWorkshop||'',process:image.relatedProcess||'',comparisonPeriod:image.comparisonPeriod||'',originalObjectPath:image.originalObjectPath||''};}
 const associationKey=item=>JSON.stringify([item.sourceType,item.sourceFile,item.pageNumber,item.imageIndex,item.reportId]);
 export function mergeSourceAssociations(...images){const map=new Map();for(const image of images)for(const item of [...image.sourceAssociations||[],sourceAssociation(image)])map.set(associationKey(item),item);return [...map.values()];}
